@@ -1,16 +1,68 @@
-# React + Vite
+# DesignSpace
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+DesignSpace is a real-time collaborative team platform for shared workspaces, team formation, and live project coordination. The system combines secure authentication, realtime collaboration, and team-based workflow management.
 
-Currently, two official plugins are available:
+## Tech stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- Frontend: React + Vite
+- Backend: Node.js + Express
+- Real-time layer: Socket.IO
+- Auth: Email/password + OTP flow
+- Deployment target: Azure App Service
+- Conflict resolution model: Last-Write-Wins (LWW)
 
-## React Compiler
+## Core features
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- Signup and login using email/password
+- Email OTP verification for authentication
+- Team creation and team joining flows
+- Real-time collaborative updates in team rooms
+- Event-driven live state sync across users
+- Conflict handling for concurrent edits
 
-## Expanding the Oxlint configuration
+## Mermaid workflow
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+```mermaid
+flowchart TD
+    A[User signs up or logs in] --> B{Auth method}
+    B -->|Password| C[Create JWT session]
+    B -->|OTP| D[Verify email OTP]
+    C --> E[Create or join a team]
+    D --> E
+    E --> F[Realtime team room via Socket.IO]
+    F --> G[Broadcast updates to all members]
+    G --> H[Resolve conflicts with LWW logic]
+    H --> I[Display live workspace updates]
+```
+
+## Project structure
+
+- frontend/: React app and landing screens
+- backend/: Express API and realtime server
+- README.md: project overview and workflow
+
+## Local setup
+
+Frontend:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Backend:
+
+```bash
+cd backend
+npm install
+npm run dev
+```
+
+## Notes
+
+This repository is structured to support a phased MVP workflow:
+
+1. Backend-first implementation and tests
+2. Frontend draft and app shell
+3. Production polish and deployment setup
