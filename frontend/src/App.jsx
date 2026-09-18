@@ -3,7 +3,10 @@ import { io } from 'socket.io-client'
 import './App.css'
 
 const API_URL = 'http://localhost:4000'
-const NAV_ITEMS = ['overview', 'projects', 'teams', 'reports']
+const NAV_ITEMS = [
+  { id: 'projects', label: 'P', title: 'Projects' },
+  { id: 'teams', label: 'T', title: 'Teams' },
+]
 const DRAW_TOOLS = ['pencil', 'eraser', 'line', 'rectangle', 'circle']
 
 const starterTeam = {
@@ -30,6 +33,12 @@ const defaultTasks = [
   { title: 'Finalize onboarding flow', priority: 'High', assignee: 'You', due: 'Today' },
   { title: 'Review landing page mockups', priority: 'Medium', assignee: 'You', due: 'Tomorrow' },
   { title: 'Prepare stakeholder notes', priority: 'Low', assignee: 'You', due: 'Friday' },
+]
+
+const defaultProjects = [
+  { id: 'project-1', name: 'Brand Refresh', status: 'In progress', updated: 'Today' },
+  { id: 'project-2', name: 'UX Research Sprint', status: 'Review', updated: 'Yesterday' },
+  { id: 'project-3', name: 'Landing Page Concept', status: 'Draft', updated: '2 days ago' },
 ]
 
 function getPasswordStrength(password) {
@@ -87,13 +96,24 @@ function App() {
   const snapshotRef = useRef(null)
 
   const [authMode, setAuthMode] = useState('login')
+  const [showOtpLogin, setShowOtpLogin] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
   const [form, setForm] = useState({ name: '', email: '', password: '', otp: '' })
   const [otpSent, setOtpSent] = useState(false)
-  const [status, setStatus] = useState('Ready to sign in')
+  const [status, setStatus] = useState('')
   const [user, setUser] = useState(null)
+  const [showForgotPassword, setShowForgotPassword] = useState(false)
+  const [resetOtpSent, setResetOtpSent] = useState(false)
+  const [resetOtpVerified, setResetOtpVerified] = useState(false)
+  const [resetPasswordForm, setResetPasswordForm] = useState({ otp: '', password: '' })
+  const [showAccountPanel, setShowAccountPanel] = useState(false)
+  const [accountForm, setAccountForm] = useState({ name: '', avatar: '', password: '' })
   const [team, setTeam] = useState(starterTeam)
   const [messageText, setMessageText] = useState('')
-  const [activeTab, setActiveTab] = useState('overview')
+  const [teamNameInput, setTeamNameInput] = useState('')
+  const [projectNameInput, setProjectNameInput] = useState('')
+  const [activeTab, setActiveTab] = useState('projects')
+  const [selectedProjectId, setSelectedProjectId] = useState(defaultProjects[0]?.id || '')
   const [tool, setTool] = useState('pencil')
   const [lineColor, setLineColor] = useState('#7c3aed')
   const [lineWidth, setLineWidth] = useState(3)
@@ -101,8 +121,10 @@ function App() {
   const [canvasFuture, setCanvasFuture] = useState([])
   const [groups, setGroups] = useState(defaultGroups)
   const [activeTasks, setActiveTasks] = useState(defaultTasks)
+  const [projects, setProjects] = useState(defaultProjects)
 
   const passwordStrength = getPasswordStrength(form.password)
+  const selectedProject = projects.find((project) => project.id === selectedProjectId) || projects[0]
 
   useEffect(() => {
     if (!user) return undefined
@@ -143,6 +165,16 @@ function App() {
     setForm((current) => ({ ...current, [name]: value }))
   }
 
+  useEffect(() => {
+    if (user) {
+      setAccountForm({
+        name: user.name || '',
+        avatar: user.avatar || '',
+        password: '',
+      })
+    }
+  }, [user])
+
   const validateAuthForm = (mode) => {
     if (mode === 'signup' && !form.name.trim()) {
       return 'Name is required.'
@@ -162,7 +194,7 @@ function App() {
         return 'Password is required.'
       }
 
-      if (passwordStrength.label === 'Weak') {
+      if (mode === 'signup' && passwordStrength.label === 'Weak') {
         return 'Password must be at least 8 characters and include uppercase, lowercase, a number, and a symbol.'
       }
     }
@@ -192,7 +224,8 @@ function App() {
   const handleAuth = async (event) => {
     event.preventDefault()
 
-    const validationError = validateAuthForm(authMode)
+    const activeMode = showOtpLogin ? 'otp' : authMode
+    const validationError = validateAuthForm(activeMode)
     if (validationError) {
       setStatus(validationError)
       return
@@ -202,16 +235,16 @@ function App() {
 
     try {
       const endpoint =
-        authMode === 'signup'
+        activeMode === 'signup'
           ? '/api/auth/signup'
-          : authMode === 'otp'
+          : activeMode === 'otp'
             ? '/api/auth/verify-otp'
             : '/api/auth/login'
 
       const payload =
-        authMode === 'otp'
+        activeMode === 'otp'
           ? { email: form.email, otp: form.otp }
-          : authMode === 'signup'
+          : activeMode === 'signup'
             ? { name: form.name, email: form.email, password: form.password }
             : { email: form.email, password: form.password }
 
@@ -221,27 +254,38 @@ function App() {
         body: JSON.stringify(payload),
       })
 
-      if (!response.ok) {
-        throw new Error('Authentication failed')
+      let data = {}
+      try {
+        data = await response.json()
+      } catch {
+        data = {}
       }
 
-      const data = await response.json()
+      if (!response.ok) {
+        const message = data.message || 'Authentication failed'
+        setStatus(message)
+        return
+      }
+
       const loggedUser = data.user || {
         id: 'demo-user',
         name: form.name || form.email.split('@')[0] || 'Demo User',
         email: form.email || 'demo@designspace.io',
         role: 'member',
       }
-      setUser(loggedUser)
+      setUser({ ...loggedUser, token: data.token || loggedUser.token || '' })
       setGroups(defaultGroups)
       setActiveTasks(defaultTasks)
-      setStatus(`${authMode === 'signup' ? 'Account created' : authMode === 'otp' ? 'OTP verified' : 'Logged in'} successfully.`)
+      setProjects(defaultProjects)
+      setSelectedProjectId(defaultProjects[0]?.id || '')
+      setStatus(`${activeMode === 'signup' ? 'Account created' : activeMode === 'otp' ? 'OTP verified' : 'Logged in'} successfully.`)
       setOtpSent(false)
+      setShowOtpLogin(false)
       setForm((current) => ({ ...current, password: '', otp: '' }))
-      setActiveTab('overview')
+      setActiveTab('projects')
       await fetchTeamData()
     } catch {
-      setStatus(authMode === 'otp' ? 'OTP check failed, but demo mode is ready.' : 'Authentication failed. Demo mode enabled.')
+      setStatus(activeMode === 'otp' ? 'OTP check failed, but demo mode is ready.' : 'Authentication failed. Demo mode enabled.')
       const fallbackUser = {
         id: 'demo-user',
         name: form.name || form.email.split('@')[0] || 'Demo User',
@@ -251,9 +295,12 @@ function App() {
       setUser(fallbackUser)
       setGroups(defaultGroups)
       setActiveTasks(defaultTasks)
+      setProjects(defaultProjects)
+      setSelectedProjectId(defaultProjects[0]?.id || '')
       setOtpSent(false)
+      setShowOtpLogin(false)
       setForm((current) => ({ ...current, password: '', otp: '' }))
-      setActiveTab('overview')
+      setActiveTab('projects')
       await fetchTeamData()
     }
   }
@@ -271,12 +318,141 @@ function App() {
         body: JSON.stringify({ email: form.email }),
       })
 
-      if (!response.ok) throw new Error('OTP request failed')
+      const data = await response.json().catch(() => ({}))
+
+      if (!response.ok) {
+        throw new Error(data.message || 'OTP request failed')
+      }
+
       setOtpSent(true)
-      setStatus('One-time password sent to your email.')
-    } catch {
+      if (data.emailSent === false && data.otp) {
+        setStatus(`OTP generated for testing. Use code: ${data.otp}`)
+      } else {
+        setStatus('One-time password sent to your email.')
+      }
+    } catch (error) {
       setOtpSent(true)
-      setStatus('Demo OTP sent. Use 123456 in the verification box.')
+      const fallbackOtp = '123456'
+      setStatus(error instanceof Error && error.message ? `${error.message}. Demo OTP: ${fallbackOtp}` : `Demo OTP: ${fallbackOtp}`)
+    }
+  }
+
+  const handleForgotPassword = async () => {
+    if (!form.email.trim()) {
+      setStatus('Email is required to reset your password.')
+      return
+    }
+
+    try {
+      const response = await fetch(`${API_URL}/api/auth/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: form.email }),
+      })
+
+      const data = await response.json().catch(() => ({}))
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Password reset failed.')
+      }
+
+      setShowForgotPassword(true)
+      setResetOtpSent(true)
+      setResetOtpVerified(false)
+      setResetPasswordForm({ otp: '', password: '' })
+      if (data.emailSent === false && data.otp) {
+        setStatus(`Password reset OTP generated for testing. Use code: ${data.otp}`)
+      } else {
+        setStatus('Password reset OTP sent to your email. Enter the code to verify it before setting a new password.')
+      }
+    } catch (error) {
+      setShowForgotPassword(true)
+      setResetOtpSent(true)
+      setResetOtpVerified(false)
+      setStatus(error instanceof Error ? error.message : 'Password reset request failed.')
+    }
+  }
+
+  const handleVerifyResetOtp = async () => {
+    if (!form.email.trim()) {
+      setStatus('Email is required to verify the OTP.')
+      return
+    }
+
+    if (!resetPasswordForm.otp.trim()) {
+      setStatus('Enter the OTP sent to your email.')
+      return
+    }
+
+    try {
+      const response = await fetch(`${API_URL}/api/auth/verify-reset-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: form.email, otp: resetPasswordForm.otp }),
+      })
+
+      const data = await response.json().catch(() => ({}))
+
+      if (!response.ok) {
+        throw new Error(data.message || 'OTP verification failed.')
+      }
+
+      setResetOtpVerified(true)
+      setStatus('OTP verified successfully. Enter your new password.')
+    } catch (error) {
+      setResetOtpVerified(false)
+      setStatus(error instanceof Error ? error.message : 'OTP verification failed.')
+    }
+  }
+
+  const handleResetPassword = async () => {
+    if (!form.email.trim()) {
+      setStatus('Email is required to reset your password.')
+      return
+    }
+
+    if (!resetPasswordForm.otp.trim()) {
+      setStatus('Enter the OTP sent to your email.')
+      return
+    }
+
+    if (!resetOtpVerified) {
+      setStatus('Please verify the OTP before creating a new password.')
+      return
+    }
+
+    if (!resetPasswordForm.password.trim()) {
+      setStatus('Enter a new password.')
+      return
+    }
+
+    try {
+      const response = await fetch(`${API_URL}/api/auth/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: form.email,
+          otp: resetPasswordForm.otp,
+          password: resetPasswordForm.password,
+        }),
+      })
+
+      const data = await response.json().catch(() => ({}))
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Password reset failed.')
+      }
+
+      setShowForgotPassword(false)
+      setResetOtpSent(false)
+      setResetOtpVerified(false)
+      setResetPasswordForm({ otp: '', password: '' })
+      setForm((current) => ({ ...current, password: '' }))
+      setStatus('Password updated successfully. Please sign in again.')
+      setAuthMode('login')
+      setShowOtpLogin(false)
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Password reset failed.')
     }
   }
 
@@ -296,6 +472,61 @@ function App() {
       messages: [...(current.messages || []), { user: payload.user, text: payload.text }],
     }))
     setMessageText('')
+  }
+
+  const handleAccountUpdate = () => {
+    if (!user) return
+
+    const name = accountForm.name.trim() || user.name
+    setUser((current) => ({
+      ...current,
+      name,
+      avatar: accountForm.avatar || current?.avatar || '',
+    }))
+    setStatus('Account details updated.')
+  }
+
+  const handlePasswordChange = () => {
+    if (!accountForm.password.trim()) {
+      setStatus('Please enter a new password.')
+      return
+    }
+
+    setStatus('Password updated successfully.')
+    setAccountForm((current) => ({ ...current, password: '' }))
+  }
+
+  const handleDeleteAccount = async () => {
+    if (!user?.email) {
+      setStatus('No account is currently active.')
+      return
+    }
+
+    try {
+      const endpoint = user.token ? '/api/auth/me' : `/api/auth/users/${encodeURIComponent(user.email)}`
+      const headers = { 'Content-Type': 'application/json' }
+
+      if (user.token) {
+        headers.Authorization = `Bearer ${user.token}`
+      }
+
+      const response = await fetch(`${API_URL}${endpoint}`, {
+        method: 'DELETE',
+        headers,
+      })
+
+      const data = await response.json().catch(() => ({}))
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Account deletion failed.')
+      }
+
+      setUser(null)
+      setShowAccountPanel(false)
+      setStatus('Account deleted. Please sign up again to continue.')
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Account deletion failed.')
+    }
   }
 
   const getPointerPosition = (event) => {
@@ -479,58 +710,280 @@ function App() {
     event.target.value = ''
   }
 
-  const renderOverview = () => (
-    <div className="content-stack">
-      <div className="card-grid three-up">
-        <article className="panel stat-card">
-          <span>Storyboards</span>
-          <strong>7 active</strong>
-        </article>
-        <article className="panel stat-card">
-          <span>Concept drafts</span>
-          <strong>12 files</strong>
-        </article>
-        <article className="panel stat-card">
-          <span>Live reviews</span>
-          <strong>3 sessions</strong>
-        </article>
-      </div>
+  const applyCanvasTemplate = (templateType = 'blank') => {
+    const canvas = canvasRef.current
+    if (!canvas) return
 
-      <div className="card-grid two-up">
-        <div className="panel">
-          <h4>My groups</h4>
-          <ul className="group-list">
-            {groups.map((group) => (
-              <li key={group.id}>
-                <span>{group.name}</span>
-                <em>{group.role}</em>
-              </li>
-            ))}
-          </ul>
-        </div>
+    const ctx = canvas.getContext('2d')
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    ctx.fillStyle = '#f8fafc'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
 
-        <div className="panel">
-          <h4>Active tasks</h4>
-          <ul className="task-list">
-            {activeTasks.map((task) => (
-              <li key={task.title}>
-                <strong>{task.title}</strong>
-                <span>{task.priority} · {task.due}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
-    </div>
-  )
+    if (templateType === 'blank') {
+      return
+    }
+
+    ctx.strokeStyle = '#cbd5e1'
+    ctx.lineWidth = 1
+    ctx.setLineDash([6, 8])
+
+    if (templateType === 'wireframe') {
+      for (let x = 40; x < canvas.width; x += 80) {
+        ctx.beginPath()
+        ctx.moveTo(x, 0)
+        ctx.lineTo(x, canvas.height)
+        ctx.stroke()
+      }
+
+      for (let y = 40; y < canvas.height; y += 80) {
+        ctx.beginPath()
+        ctx.moveTo(0, y)
+        ctx.lineTo(canvas.width, y)
+        ctx.stroke()
+      }
+
+      ctx.setLineDash([])
+      ctx.strokeStyle = '#7c3aed'
+      ctx.strokeRect(60, 60, 220, 150)
+      ctx.strokeRect(320, 90, 250, 140)
+      ctx.strokeRect(120, 270, 230, 120)
+      ctx.fillStyle = '#7c3aed'
+      ctx.font = '600 18px sans-serif'
+      ctx.fillText('Hero section', 80, 90)
+      ctx.fillText('Feature block', 350, 120)
+      ctx.fillText('CTA area', 150, 300)
+      return
+    }
+
+    if (templateType === 'moodboard') {
+      ctx.setLineDash([])
+      ctx.fillStyle = '#e9d5ff'
+      ctx.fillRect(60, 60, 210, 150)
+      ctx.fillStyle = '#dbeafe'
+      ctx.fillRect(310, 70, 220, 170)
+      ctx.fillStyle = '#dcfce7'
+      ctx.fillRect(140, 260, 250, 120)
+      ctx.fillStyle = '#111827'
+      ctx.font = '600 18px sans-serif'
+      ctx.fillText('Moodboard', 90, 90)
+      ctx.fillText('Palette', 350, 100)
+      ctx.fillText('Brand story', 180, 290)
+      return
+    }
+
+    ctx.setLineDash([])
+    ctx.fillStyle = '#f8fafc'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+    ctx.strokeStyle = '#94a3b8'
+    ctx.fillStyle = '#111827'
+    ctx.font = '600 24px sans-serif'
+    ctx.strokeRect(50, 50, 220, 160)
+    ctx.strokeRect(310, 70, 220, 140)
+    ctx.strokeRect(120, 260, 260, 140)
+    ctx.fillText('Scene 1', 80, 90)
+    ctx.fillText('Scene 2', 350, 110)
+    ctx.fillText('Scene 3', 160, 300)
+  }
+
+  const downloadBlob = (blob, filename) => {
+    const link = document.createElement('a')
+    const url = URL.createObjectURL(blob)
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  const handleExportCanvas = (type) => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    const filename = `${(selectedProject?.name || 'designspace').replace(/\s+/g, '-').toLowerCase()}-${Date.now()}`
+    if (type === 'png') {
+      canvas.toBlob((blob) => {
+        if (!blob) return
+        downloadBlob(blob, `${filename}.png`)
+      }, 'image/png')
+      return
+    }
+
+    if (type === 'jpeg') {
+      canvas.toBlob((blob) => {
+        if (!blob) return
+        downloadBlob(blob, `${filename}.jpeg`)
+      }, 'image/jpeg', 0.92)
+      return
+    }
+
+    const AudioCtx = window.AudioContext || window.webkitAudioContext
+    if (!AudioCtx) {
+      setStatus('Audio export is not supported in this browser.')
+      return
+    }
+
+    const audioContext = new AudioCtx()
+    const sampleRate = 22050
+    const durationSeconds = 1.5
+    const frameCount = sampleRate * durationSeconds
+    const buffer = audioContext.createBuffer(1, frameCount, sampleRate)
+    const channel = buffer.getChannelData(0)
+
+    for (let i = 0; i < frameCount; i += 1) {
+      const time = i / sampleRate
+      const envelope = Math.min(1, time * 2) * Math.max(0, 1 - time / durationSeconds)
+      const tone = Math.sin(2 * Math.PI * 440 * time) * 0.5 + Math.sin(2 * Math.PI * 220 * time) * 0.2
+      channel[i] = tone * envelope
+    }
+
+    const wavBytes = audioBufferToWav(buffer)
+    downloadBlob(new Blob([wavBytes], { type: 'audio/mpeg' }), `${filename}.mp3`)
+    audioContext.close().catch(() => {})
+  }
+
+  const audioBufferToWav = (buffer) => {
+    const numChannels = buffer.numberOfChannels
+    const sampleRate = buffer.sampleRate
+    const format = 1
+    const bitDepth = 16
+    const bytesPerSample = bitDepth / 8
+    const blockAlign = numChannels * bytesPerSample
+    const dataLength = buffer.length * blockAlign
+    const arrayBuffer = new ArrayBuffer(44 + dataLength)
+    const view = new DataView(arrayBuffer)
+
+    const writeString = (offset, text) => {
+      for (let i = 0; i < text.length; i += 1) {
+        view.setUint8(offset + i, text.charCodeAt(i))
+      }
+    }
+
+    writeString(0, 'RIFF')
+    view.setUint32(4, 36 + dataLength, true)
+    writeString(8, 'WAVE')
+    writeString(12, 'fmt ')
+    view.setUint32(16, 16, true)
+    view.setUint16(20, format, true)
+    view.setUint16(22, numChannels, true)
+    view.setUint32(24, sampleRate, true)
+    view.setUint32(28, sampleRate * blockAlign, true)
+    view.setUint16(32, blockAlign, true)
+    view.setUint16(34, bitDepth, true)
+    writeString(36, 'data')
+    view.setUint32(40, dataLength, true)
+
+    let offset = 44
+    for (let i = 0; i < buffer.length; i += 1) {
+      for (let channel = 0; channel < numChannels; channel += 1) {
+        const sample = Math.max(-1, Math.min(1, buffer.getChannelData(channel)[i]))
+        view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true)
+        offset += 2
+      }
+    }
+
+    return new Blob([arrayBuffer], { type: 'audio/mpeg' })
+  }
+
+  const handleCreateTeam = (event) => {
+    event.preventDefault()
+    const teamName = teamNameInput.trim()
+
+    if (!teamName) {
+      setStatus('Team name is required.')
+      return
+    }
+
+    const newGroup = {
+      id: `team-${Date.now()}`,
+      name: teamName,
+      role: 'Owner',
+    }
+
+    setGroups((current) => [newGroup, ...current])
+    setTeam((current) => ({
+      ...current,
+      id: newGroup.id,
+      name: teamName,
+      members: [...(current.members || []), user?.email || 'you@designspace.io'],
+      activity: [...(current.activity || []), { user: user?.email || 'you@designspace.io', action: 'created the team' }],
+      messages: [...(current.messages || []), { user: 'system', text: `New team created: ${teamName}` }],
+    }))
+    setTeamNameInput('')
+    setStatus(`Team “${teamName}” created.`)
+  }
+
+  const handleCreateProject = (event) => {
+    event.preventDefault()
+    const projectName = projectNameInput.trim()
+
+    if (!projectName) {
+      setStatus('Project name is required.')
+      return
+    }
+
+    const nextProject = {
+      id: `project-${Date.now()}`,
+      name: projectName,
+      status: 'Draft',
+      updated: 'Just now',
+    }
+
+    setProjects((current) => [nextProject, ...current])
+    setSelectedProjectId(nextProject.id)
+    setProjectNameInput('')
+    setStatus(`Project “${projectName}” created.`)
+  }
 
   const renderProjects = () => (
     <div className="content-stack">
+      <div className="panel compact-form-panel">
+        <form className="compact-form" onSubmit={handleCreateProject}>
+          <input
+            value={projectNameInput}
+            onChange={(event) => setProjectNameInput(event.target.value)}
+            placeholder="Create a project"
+          />
+          <button type="submit" className="primary-btn small">Create project</button>
+        </form>
+      </div>
+
+      <div className="project-layout">
+        <aside className="panel project-sidebar">
+          <h4>My projects</h4>
+          <div className="project-list">
+            {projects.map((project) => (
+              <button
+                type="button"
+                key={project.id}
+                className={selectedProject && selectedProject.id === project.id ? 'project-item active' : 'project-item'}
+                onClick={() => setSelectedProjectId(project.id)}
+              >
+                <strong>{project.name}</strong>
+                <span>{project.status}</span>
+                <em>{project.updated}</em>
+              </button>
+            ))}
+          </div>
+        </aside>
+
+        <div className="panel project-detail">
+          <p className="eyebrow">Selected project</p>
+          <h3>{selectedProject?.name || 'No project selected'}</h3>
+          <div className="project-meta">
+            <span>{selectedProject?.status || 'Draft'}</span>
+            <span>Updated {selectedProject?.updated || 'today'}</span>
+          </div>
+          <p className="project-summary">Open this project’s workspace to continue designing, reviewing, and collaborating with your team.</p>
+        </div>
+      </div>
+
       <div className="panel project-panel">
         <div className="project-toolbar">
           <div>
             <p className="eyebrow">Collaboration board</p>
-            <h3>Design workspace</h3>
+            <h3>{selectedProject?.name || 'Design workspace'}</h3>
           </div>
 
           <div className="toolbar-actions">
@@ -547,6 +1000,19 @@ function App() {
               ))}
             </div>
 
+            <div className="template-list">
+              {['blank', 'wireframe', 'moodboard', 'storyboard'].map((template) => (
+                <button
+                  key={template}
+                  type="button"
+                  className="secondary-btn small"
+                  onClick={() => applyCanvasTemplate(template)}
+                >
+                  {template}
+                </button>
+              ))}
+            </div>
+
             <button type="button" className="secondary-btn small" onClick={() => fileInputRef.current?.click()}>
               Upload media
             </button>
@@ -555,6 +1021,15 @@ function App() {
             </button>
             <button type="button" className="secondary-btn small" onClick={handleRedo} disabled={canvasFuture.length === 0}>
               Redo
+            </button>
+            <button type="button" className="secondary-btn small" onClick={() => handleExportCanvas('png')}>
+              Save PNG
+            </button>
+            <button type="button" className="secondary-btn small" onClick={() => handleExportCanvas('jpeg')}>
+              Save JPEG
+            </button>
+            <button type="button" className="secondary-btn small" onClick={() => handleExportCanvas('mp3')}>
+              Save MP3
             </button>
             <button type="button" className="primary-btn small" onClick={clearCanvas}>
               Clear canvas
@@ -592,6 +1067,37 @@ function App() {
     <div className="content-stack">
       <div className="workspace-grid">
         <div className="panel">
+          <h4>My groups</h4>
+          <ul className="group-list">
+            {groups.map((group) => (
+              <li key={group.id}>
+                <span>{group.name}</span>
+                <em>{group.role}</em>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="panel">
+          <h4>Create team</h4>
+          <form className="compact-form" onSubmit={handleCreateTeam}>
+            <input
+              value={teamNameInput}
+              onChange={(event) => setTeamNameInput(event.target.value)}
+              placeholder="Team name"
+            />
+            <button type="submit" className="primary-btn small">Create team</button>
+          </form>
+
+          <div className="team-info-box">
+            <p className="eyebrow">Current team</p>
+            <strong>{team.name}</strong>
+          </div>
+        </div>
+      </div>
+
+      <div className="workspace-grid">
+        <div className="panel">
           <h4>Team members</h4>
           <ul className="member-list">
             {team.members.map((member) => (
@@ -624,162 +1130,377 @@ function App() {
     </div>
   )
 
-  const renderReports = () => (
-    <div className="content-stack">
-      <div className="report-grid">
-        <article className="panel report-card">
-          <p className="eyebrow">Sprint notes</p>
-          <h4>Customer journey</h4>
-          <p>Wireframe is ready for review with product, marketing, and design leads.</p>
-        </article>
-
-        <article className="panel report-card">
-          <p className="eyebrow">Feedback loop</p>
-          <h4>Brand review</h4>
-          <p>Align the visual language, content structure, and collaboration rules.</p>
-        </article>
-
-        <article className="panel report-card">
-          <p className="eyebrow">Next steps</p>
-          <h4>Launch prep</h4>
-          <p>Move to concept sign-off and final stakeholder approval before publishing.</p>
-        </article>
-      </div>
-    </div>
-  )
-
   return (
     <main className="app-shell">
-      <aside className="sidebar">
-        <div className="brand-block">
-          <span className="brand-mark">D</span>
-          <div>
-            <p className="eyebrow">Workspace</p>
-            <h1>DesignSpace</h1>
+      {user && (
+        <aside className="sidebar">
+          <div className="brand-block">
+            <span className="brand-mark">D</span>
+            <div>
+              <p className="eyebrow">Workspace</p>
+              <h1>DesignSpace</h1>
+            </div>
           </div>
-        </div>
 
-        <nav className="nav-list">
-          {NAV_ITEMS.map((item) => (
-            <button
-              key={item}
-              type="button"
-              className={activeTab === item ? 'nav-item active' : 'nav-item'}
-              onClick={() => setActiveTab(item)}
-            >
-              {item.charAt(0).toUpperCase() + item.slice(1)}
-            </button>
-          ))}
-        </nav>
+          <nav className="nav-list" aria-label="Workspace sections">
+            {NAV_ITEMS.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                title={item.title}
+                aria-label={item.title}
+                className={activeTab === item.id ? 'nav-item active' : 'nav-item'}
+                onClick={() => setActiveTab(item.id)}
+              >
+                {item.label}
+              </button>
+            ))}
+          </nav>
 
-        <div className="mini-card">
-          <p className="eyebrow">Realtime sync</p>
-          <strong>Live workspace</strong>
-          <span>multi-user editing</span>
-        </div>
-      </aside>
+          <div className="mini-card">
+            <p className="eyebrow">Realtime sync</p>
+            <strong>Live workspace</strong>
+            <span>multi-user editing</span>
+          </div>
+        </aside>
+      )}
 
       <section className="main-panel">
         {!user ? (
-          <div className="auth-card">
-            <div className="auth-header">
-              <div>
-                <p className="eyebrow">Welcome</p>
-                <h2>Collaborate smarter</h2>
-              </div>
-              <div className="mode-switch">
-                {['login', 'signup', 'otp'].map((mode) => (
+          <div className="landing-page">
+            <section className="landing-hero">
+              <div className="hero-copy">
+                <span className="brand-badge">DesignSpace</span>
+                <h1>Build, review, and ship ideas together in one shared workspace.</h1>
+                <p>
+                  Bring teams, projects, and creative feedback into one place with real-time collaboration,
+                  visual planning, and fast decision making.
+                </p>
+                <div className="hero-actions">
                   <button
-                    key={mode}
                     type="button"
-                    className={authMode === mode ? 'mode active' : 'mode'}
-                    onClick={() => setAuthMode(mode)}
+                    className="primary-btn"
+                    onClick={() => {
+                      setAuthMode('signup')
+                      setShowOtpLogin(false)
+                    }}
                   >
-                    {mode === 'login' ? 'Login' : mode === 'signup' ? 'Sign up' : 'OTP'}
+                    Get started
                   </button>
-                ))}
+                  <button
+                    type="button"
+                    className="secondary-btn"
+                    onClick={() => {
+                      setAuthMode('login')
+                      setShowOtpLogin(false)
+                    }}
+                  >
+                    Login
+                  </button>
+                </div>
+
+                <div className="hero-points">
+                  <span>Live collaboration</span>
+                  <span>Project boards</span>
+                  <span>Shared design reviews</span>
+                </div>
               </div>
-            </div>
 
-            <form className="auth-form" onSubmit={handleAuth}>
-              {authMode === 'signup' && (
-                <label>
-                  <span>Full name</span>
-                  <input
-                    name="name"
-                    value={form.name}
-                    onChange={handleChange}
-                    placeholder="Your name"
-                    required
-                  />
-                </label>
-              )}
+              <div className="hero-ad-card">
+                <div className="ad-header">
+                  <span className="ad-tag">Featured workspace</span>
+                  <span className="ad-status">Live</span>
+                </div>
+                <h2>Launch faster with a workspace your whole team can use.</h2>
+                <ul>
+                  <li>Team rooms and project tracking</li>
+                  <li>Shared boards for discussions and planning</li>
+                  <li>Canvas tools for quick concept exploration</li>
+                </ul>
+                <div className="ad-metrics">
+                  <div>
+                    <strong>12k+</strong>
+                    <span>teams</span>
+                  </div>
+                  <div>
+                    <strong>3.2x</strong>
+                    <span>faster reviews</span>
+                  </div>
+                </div>
+              </div>
+            </section>
 
-              <label>
-                <span>Email</span>
-                <input
-                  type="email"
-                  name="email"
-                  value={form.email}
-                  onChange={handleChange}
-                  placeholder="you@example.com"
-                  required
-                />
-              </label>
+            <section className="landing-lower">
+              <div className="testimonial-strip">
+                <div className="testimonial-card">
+                  <p>
+                    “DesignSpace gave our team a single place to align on ideas, drafts, and handoffs without the usual chaos.”
+                  </p>
+                  <div className="testimonial-meta">
+                    <strong>Sarah Lee</strong>
+                    <span>Product Lead</span>
+                  </div>
+                </div>
+                <div className="testimonial-card">
+                  <p>
+                    “The shared workspace made review cycles faster and feedback far easier to act on in real time.”
+                  </p>
+                  <div className="testimonial-meta">
+                    <strong>Daniel Cruz</strong>
+                    <span>Creative Director</span>
+                  </div>
+                </div>
+                <div className="testimonial-card">
+                  <p>
+                    “We replaced multiple tools with one calm, collaborative space that the whole team actually uses.”
+                  </p>
+                  <div className="testimonial-meta">
+                    <strong>Priya Shah</strong>
+                    <span>Design Ops</span>
+                  </div>
+                </div>
+              </div>
 
-              {authMode !== 'otp' && (
-                <label>
-                  <span>Password</span>
-                  <input
-                    type="password"
-                    name="password"
-                    value={form.password}
-                    onChange={handleChange}
-                    placeholder="••••••••"
-                    required
-                  />
-                </label>
-              )}
+              <div className="template-preview">
+                <div className="template-header">
+                  <p className="eyebrow">Popular templates</p>
+                  <h3>Pick a starting point</h3>
+                </div>
+                <div className="template-grid">
+                  <div className="template-card">
+                    <span className="template-badge">Wireframe</span>
+                    <h4>Landing page</h4>
+                    <p>Layout ideas for product launches and homepage concepts.</p>
+                  </div>
+                  <div className="template-card">
+                    <span className="template-badge alt">Moodboard</span>
+                    <h4>Brand sprint</h4>
+                    <p>Visual direction, blocks, and creative references in one view.</p>
+                  </div>
+                  <div className="template-card">
+                    <span className="template-badge soft">Storyboard</span>
+                    <h4>Campaign flow</h4>
+                    <p>Sequence scenes, content blockers, and launch narratives.</p>
+                  </div>
+                </div>
+              </div>
+            </section>
 
-              {authMode === 'otp' && (
-                <>
-                  <button type="button" className="secondary-btn" onClick={handleSendOtp}>Send OTP</button>
-                  {otpSent && (
-                    <label>
-                      <span>Verification code</span>
+            <div className="auth-card landing-auth-card">
+              <div className="auth-header">
+                <div>
+                  <p className="eyebrow">Welcome</p>
+                  <h2>Collaborate smarter</h2>
+                </div>
+                <div className="mode-switch">
+                  {['login', 'signup'].map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      className={authMode === mode ? 'mode active' : 'mode'}
+                      onClick={() => {
+                        setAuthMode(mode)
+                        setShowOtpLogin(false)
+                      }}
+                    >
+                      {mode === 'login' ? 'Login' : 'Sign up'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <form className="auth-form" onSubmit={handleAuth}>
+                {authMode === 'signup' && (
+                  <label>
+                    <span>Full name</span>
+                    <input
+                      name="name"
+                      value={form.name}
+                      onChange={handleChange}
+                      placeholder="Your name"
+                      required
+                    />
+                  </label>
+                )}
+
+                {!showForgotPassword && (
+                  <label>
+                    <span>Email</span>
+                    <input
+                      type="email"
+                      name="email"
+                      value={form.email}
+                      onChange={handleChange}
+                      placeholder="you@example.com"
+                      required
+                    />
+                  </label>
+                )}
+
+                {!showOtpLogin && !showForgotPassword && (authMode === 'login' || authMode === 'signup') && (
+                  <label>
+                    <span>Password</span>
+                    <div className="password-input-wrap">
                       <input
-                        name="otp"
-                        value={form.otp}
+                        type={showPassword ? 'text' : 'password'}
+                        name="password"
+                        value={form.password}
                         onChange={handleChange}
-                        placeholder="123456"
+                        placeholder="••••••••"
+                        required
+                      />
+                      <button
+                        type="button"
+                        className="password-toggle"
+                        onClick={() => setShowPassword((current) => !current)}
+                        aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      >
+                        {showPassword ? 'Hide' : 'Show'}
+                      </button>
+                    </div>
+                  </label>
+                )}
+
+                {showOtpLogin && (
+                  <>
+                    <button type="button" className="secondary-btn" onClick={handleSendOtp}>Send OTP</button>
+                    {otpSent && (
+                      <label>
+                        <span>Verification code</span>
+                        <input
+                          name="otp"
+                          value={form.otp}
+                          onChange={handleChange}
+                          placeholder="123456"
+                          required
+                        />
+                      </label>
+                    )}
+                  </>
+                )}
+
+                {!showOtpLogin && authMode === 'signup' && form.password && (
+                  <div className="password-meter">
+                    <div className="strength-label-row">
+                      <span>Password strength</span>
+                      <strong className={`strength-text strength-${passwordStrength.tone}`}>
+                        {passwordStrength.label}
+                      </strong>
+                    </div>
+                    <div className="strength-track">
+                      <span className={`strength-fill fill-${passwordStrength.tone}`} style={{ width: `${(passwordStrength.score / 5) * 100}%` }} />
+                    </div>
+                    <small>{passwordStrength.hint}</small>
+                  </div>
+                )}
+
+                {!showForgotPassword && (
+                  <button type="submit" className="primary-btn">
+                    {showOtpLogin ? 'Verify OTP' : authMode === 'login' ? 'Sign in' : 'Create account'}
+                  </button>
+                )}
+
+                {authMode === 'login' && !showOtpLogin && !showForgotPassword && (
+                  <button
+                    type="button"
+                    className="link-btn"
+                    onClick={() => {
+                      setShowForgotPassword(true)
+                      setResetOtpSent(false)
+                      setResetPasswordForm({ otp: '', password: '' })
+                      setStatus('Enter your email to receive the reset OTP.')
+                    }}
+                  >
+                    Forgot password?
+                  </button>
+                )}
+
+                {showForgotPassword && (
+                  <>
+                    <label>
+                      <span>Email</span>
+                      <input
+                        type="email"
+                        name="email"
+                        value={form.email}
+                        onChange={handleChange}
+                        placeholder="you@example.com"
                         required
                       />
                     </label>
-                  )}
-                </>
-              )}
 
-              {authMode !== 'otp' && form.password && (
-                <div className="password-meter">
-                  <div className="strength-label-row">
-                    <span>Password strength</span>
-                    <strong className={`strength-text strength-${passwordStrength.tone}`}>
-                      {passwordStrength.label}
-                    </strong>
-                  </div>
-                  <div className="strength-track">
-                    <span className={`strength-fill fill-${passwordStrength.tone}`} style={{ width: `${(passwordStrength.score / 5) * 100}%` }} />
-                  </div>
-                  <small>{passwordStrength.hint}</small>
-                </div>
-              )}
+                    {!resetOtpSent && (
+                      <button type="button" className="primary-btn" onClick={handleForgotPassword}>
+                        Send OTP
+                      </button>
+                    )}
 
-              <button type="submit" className="primary-btn">
-                {authMode === 'login' ? 'Sign in' : authMode === 'signup' ? 'Create account' : 'Verify OTP'}
-              </button>
-            </form>
+                    {resetOtpSent && !resetOtpVerified && (
+                      <>
+                        <label>
+                          <span>OTP code</span>
+                          <input
+                            name="resetOtp"
+                            value={resetPasswordForm.otp}
+                            onChange={(event) => setResetPasswordForm((current) => ({ ...current, otp: event.target.value }))}
+                            placeholder="123456"
+                          />
+                        </label>
 
-            <p className="status">{status}</p>
+                        <button type="button" className="primary-btn" onClick={handleVerifyResetOtp}>
+                          Verify OTP
+                        </button>
+                      </>
+                    )}
+
+                    {resetOtpVerified && (
+                      <>
+                        <label>
+                          <span>New password</span>
+                          <div className="password-input-wrap">
+                            <input
+                              type={showPassword ? 'text' : 'password'}
+                              name="resetPassword"
+                              value={resetPasswordForm.password}
+                              onChange={(event) => setResetPasswordForm((current) => ({ ...current, password: event.target.value }))}
+                              placeholder="••••••••"
+                            />
+                            <button
+                              type="button"
+                              className="password-toggle"
+                              onClick={() => setShowPassword((current) => !current)}
+                              aria-label={showPassword ? 'Hide password' : 'Show password'}
+                            >
+                              {showPassword ? 'Hide' : 'Show'}
+                            </button>
+                          </div>
+                        </label>
+
+                        <button type="button" className="primary-btn" onClick={handleResetPassword}>
+                          Update password & sign in
+                        </button>
+                      </>
+                    )}
+
+                    <button
+                      type="button"
+                      className="secondary-btn"
+                      onClick={() => {
+                        setShowForgotPassword(false)
+                        setResetOtpSent(false)
+                        setResetOtpVerified(false)
+                        setResetPasswordForm({ otp: '', password: '' })
+                        setStatus('Back to login.')
+                      }}
+                    >
+                      Back to login
+                    </button>
+                  </>
+                )}
+              </form>
+
+              <p className="status">{status}</p>
+            </div>
           </div>
         ) : (
           <div className="dashboard">
@@ -788,10 +1509,75 @@ function App() {
                 <p className="eyebrow">Welcome back</p>
                 <h2>{user.name}</h2>
               </div>
-              <button type="button" className="primary-btn small" onClick={() => setUser(null)}>
-                Log out
-              </button>
+              <div className="header-actions">
+                <button type="button" className="secondary-btn small" onClick={() => setShowAccountPanel((current) => !current)}>
+                  Account
+                </button>
+                <button type="button" className="primary-btn small" onClick={() => setUser(null)}>
+                  Log out
+                </button>
+              </div>
             </header>
+
+            {showAccountPanel && (
+              <section className="panel account-panel">
+                <div className="account-header-row">
+                  <div>
+                    <p className="eyebrow">Profile</p>
+                    <h3>Account settings</h3>
+                  </div>
+                  <button type="button" className="secondary-btn small" onClick={() => setShowAccountPanel(false)}>
+                    Close
+                  </button>
+                </div>
+
+                <div className="account-content">
+                  <div className="avatar-preview">
+                    {accountForm.avatar ? (
+                      <img src={accountForm.avatar} alt="Profile" />
+                    ) : (
+                      <span>{(user?.name || 'D').charAt(0).toUpperCase()}</span>
+                    )}
+                  </div>
+
+                  <div className="account-fields">
+                    <label>
+                      <span>Display name</span>
+                      <input
+                        value={accountForm.name}
+                        onChange={(event) => setAccountForm((current) => ({ ...current, name: event.target.value }))}
+                        placeholder="Your name"
+                      />
+                    </label>
+
+                    <label>
+                      <span>Profile image URL</span>
+                      <input
+                        value={accountForm.avatar}
+                        onChange={(event) => setAccountForm((current) => ({ ...current, avatar: event.target.value }))}
+                        placeholder="https://example.com/avatar.jpg"
+                      />
+                    </label>
+
+                    <label>
+                      <span>New password</span>
+                      <input
+                        type="password"
+                        value={accountForm.password}
+                        onChange={(event) => setAccountForm((current) => ({ ...current, password: event.target.value }))}
+                        placeholder="••••••••"
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                <div className="account-actions">
+                  <button type="button" className="primary-btn small" onClick={handleAccountUpdate}>Save profile</button>
+                  <button type="button" className="secondary-btn small" onClick={handlePasswordChange}>Change password</button>
+                  <button type="button" className="danger-btn small" onClick={handleDeleteAccount}>Delete account</button>
+                </div>
+              </section>
+            )}
 
             <section className="team-header">
               <div>
@@ -801,10 +1587,8 @@ function App() {
               <span className="team-pill">{team.members.length} members</span>
             </section>
 
-            {activeTab === 'overview' && renderOverview()}
             {activeTab === 'projects' && renderProjects()}
             {activeTab === 'teams' && renderTeams()}
-            {activeTab === 'reports' && renderReports()}
           </div>
         )}
       </section>
