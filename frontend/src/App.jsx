@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { io } from 'socket.io-client'
 import './App.css'
 
-const API_URL = 'http://localhost:4000'
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000'
 const NAV_ITEMS = [
   { id: 'projects', label: 'P', title: 'Projects' },
   { id: 'teams', label: 'T', title: 'Teams' },
