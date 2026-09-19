@@ -26,26 +26,34 @@ This app is designed for small teams that want to:
 - Landing page with promotional content, templates, testimonials, and CTA sections
 - Sign up, login, and password reset flows
 - Email OTP verification for forgot-password and reset flow
+- Save and restore the latest password or reset state securely after verification
 - Team and project creation with private/public project settings
 - Shared canvas workspace for drawing, text, shapes, and comments
 - On-canvas text editing, resize support, and style controls
 - Comment panel with open/close and resizable behavior
 - Persisted board state so drawings and edits remain after refresh or return login
+- Auto-save behavior for project data and canvas updates in local browser storage
 - Responsive layout for desktop, tablet, and mobile use
 
 ## Project workflow
 
 ```mermaid
-flowchart LR
-    A[Landing page] --> B[Login or signup]
-    B --> C[Create or join a team]
-    C --> D[Create a project]
-    D --> E[Choose project privacy]
-    E --> F[Open collaborative canvas]
-    F --> G[Draw / add text / add shapes]
-    G --> H[Leave comments and review feedback]
-    H --> I[Save board state locally]
-    I --> J[Return later and continue from saved work]
+flowchart TD
+    A[Landing page] --> B[Sign up or login]
+    B --> C{Forgot password?}
+    C -->|No| D[Create or join a team]
+    C -->|Yes| E[Enter email]
+    E --> F[Send OTP]
+    F --> G[Verify OTP]
+    G --> H[Set new password]
+    H --> I[Login with updated password]
+    I --> D
+    D --> J[Create project]
+    J --> K[Choose public/private settings]
+    K --> L[Open canvas workspace]
+    L --> M[Draw, add text, shapes, comments]
+    M --> N[Save canvas state locally]
+    N --> O[Return later and continue work]
 ```
 
 ## Screenshots
