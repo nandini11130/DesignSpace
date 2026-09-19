@@ -1,55 +1,79 @@
 # DesignSpace
 
-DesignSpace is a real-time collaborative team platform for shared workspaces, team formation, and live project coordination. The system combines secure authentication, realtime collaboration, and team-based workflow management.
+DesignSpace is a local-first collaborative workspace for teams to create projects, manage members, and work together on live design boards. It combines secure auth, project management, reusable design templates, and a real-time canvas experience in one dashboard.
+
+## Why this project
+
+This app is designed for small teams that want to:
+
+- create a shared workspace with project-based organization
+- collaborate on visual ideas and layouts in real time
+- leave comments and feedback directly on the board
+- persist designs locally so work stays available after reloads or returning sessions
+- preview a modern product workflow without needing a full hosted production setup yet
 
 ## Tech stack
 
 - Frontend: React + Vite
 - Backend: Node.js + Express
-- Real-time layer: Socket.IO
-- Auth: Email/password + OTP flow
-- Deployment target: Azure App Service
-- Conflict resolution model: Last-Write-Wins (LWW)
+- Realtime layer: Socket.IO
+- Authentication: email/password login + OTP-based forgot-password flow
+- Storage: browser localStorage for project and canvas persistence during local use
+- Design: responsive dashboard layout with dark mode workspace styling
 
 ## Core features
 
-- Signup and login using email/password
-- Forgot password flow with email OTP verification
-- Password reset using verified OTP and new password assignment
-- Team creation and team joining flows
-- Real-time collaborative updates in team rooms
-- Event-driven live state sync across users
-- Shared project, task, and workspace coordination
+- Landing page with promotional content, templates, testimonials, and CTA sections
+- Sign up, login, and password reset flows
+- Email OTP verification for forgot-password and reset flow
+- Team and project creation with private/public project settings
+- Shared canvas workspace for drawing, text, shapes, and comments
+- On-canvas text editing, resize support, and style controls
+- Comment panel with open/close and resizable behavior
+- Persisted board state so drawings and edits remain after refresh or return login
+- Responsive layout for desktop, tablet, and mobile use
 
-## Mermaid workflow
+## Project workflow
 
 ```mermaid
-flowchart TD
-    A[Landing page visit] --> B[Sign up or login]
-    B --> C{Use password or reset}
-    C -->|Password login| D[Create JWT session]
-    C -->|Forgot password| E[Enter email]
-    E --> F[Send OTP to email]
-    F --> G[Verify OTP]
-    G --> H[Create new password]
-    H --> I[Login again with updated password]
-    D --> J[Create or join a team]
-    I --> J
-    J --> K[Realtime team room via Socket.IO]
-    K --> L[Broadcast updates to all members]
-    L --> M[Collaborate on projects and tasks]
-    M --> N[Display live workspace updates]
+flowchart LR
+    A[Landing page] --> B[Login or signup]
+    B --> C[Create or join a team]
+    C --> D[Create a project]
+    D --> E[Choose project privacy]
+    E --> F[Open collaborative canvas]
+    F --> G[Draw / add text / add shapes]
+    G --> H[Leave comments and review feedback]
+    H --> I[Save board state locally]
+    I --> J[Return later and continue from saved work]
 ```
+
+## Screenshots
+
+### Landing page
+
+![Landing page screenshot](docs/screenshots/designspace-landing.svg)
+
+### Team dashboard
+
+![Dashboard screenshot](docs/screenshots/designspace-dashboard.svg)
+
+### Collaborative canvas workspace
+
+![Canvas screenshot](docs/screenshots/designspace-canvas.svg)
 
 ## Project structure
 
-- frontend/: React app and landing screens
-- backend/: Express API and realtime server
-- README.md: project overview and workflow
+- frontend/: React app and UI screens
+- backend/: Express API, auth endpoints, and realtime server
+- docs/screenshots/: demo screenshots for the project overview
+- README.md: project overview and run instructions
 
-## Local setup
+## Run locally
 
-Frontend:
+Open two terminals and run the following commands.
+
+### 1) Frontend
 
 ```bash
 cd frontend
@@ -57,7 +81,13 @@ npm install
 npm run dev
 ```
 
-Backend:
+The frontend should run on:
+
+```text
+http://localhost:5177
+```
+
+### 2) Backend
 
 ```bash
 cd backend
@@ -65,43 +95,34 @@ npm install
 npm run dev
 ```
 
-## Production configuration
+The backend should run on:
 
-Set these environment variables before deploying:
-
-### Backend (.env)
-
-```env
-NODE_ENV=production
-PORT=4000
-JWT_SECRET=replace-with-a-long-random-secret
-CORS_ORIGIN=https://your-frontend-domain.com
-SMTP_PROVIDER=gmail
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USER=your-email@gmail.com
-SMTP_PASS=your-16-character-app-password
-MAIL_FROM=your-email@gmail.com
-DB_PATH=./data/designspace.db
+```text
+http://localhost:4000
 ```
 
-### Frontend
+### Quick full setup
 
-```env
-VITE_API_URL=https://your-backend-domain.com
+```bash
+cd frontend && npm install && npm run dev
 ```
 
-## Production notes
+In a second terminal:
 
-- Never use hardcoded local host URLs in production builds.
-- The frontend reads the API URL from `VITE_API_URL`.
-- The backend will reject unsafe default SMTP credentials in production.
-- Use a verified email provider and strong secrets for real deployments.
+```bash
+cd backend && npm install && npm run dev
+```
 
 ## Notes
 
-This repository is structured to support a phased MVP workflow:
+- This project is currently intended for local development and demo use.
+- The app persists project and canvas state in the browser using localStorage.
+- The OTP flow is local-only and designed for demo use before a production email provider is configured.
+- Real production deployment should be done only after adding a secure domain, environment variables, and a production-grade email service.
 
-1. Backend-first implementation and tests
-2. Frontend draft and app shell
-3. Production polish and deployment setup
+## Recommended next steps
+
+1. Add a deployed backend with a real database and SMTP provider
+2. Replace browser localStorage with a server-backed database for multi-user persistence
+3. Add production auth rules, environment validation, and deployment pipeline
+4. Expand collaboration with real-time object locking and multi-user cursor syncing

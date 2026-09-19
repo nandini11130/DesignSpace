@@ -4,10 +4,27 @@ import './App.css'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000'
 const NAV_ITEMS = [
-  { id: 'projects', label: 'P', title: 'Projects' },
-  { id: 'teams', label: 'T', title: 'Teams' },
+  { id: 'projects', label: 'Projects', title: 'Projects' },
 ]
-const DRAW_TOOLS = ['pencil', 'eraser', 'line', 'rectangle', 'circle']
+const DRAW_TOOLS = [
+  { id: 'select', label: 'Select' },
+  { id: 'pencil', label: 'Pencil' },
+  { id: 'eraser', label: 'Eraser' },
+  { id: 'line', label: 'Line' },
+  { id: 'rectangle', label: 'Rect' },
+  { id: 'circle', label: 'Circle' },
+  { id: 'text', label: 'Text' },
+]
+
+const TOOL_ICONS = {
+  select: '✓',
+  pencil: '🖍️',
+  eraser: '🧽',
+  line: '／',
+  rectangle: '▭',
+  circle: '◯',
+  text: 'T',
+}
 
 const starterTeam = {
   id: 'team-1',
@@ -35,11 +52,100 @@ const defaultTasks = [
   { title: 'Prepare stakeholder notes', priority: 'Low', assignee: 'You', due: 'Friday' },
 ]
 
-const defaultProjects = [
-  { id: 'project-1', name: 'Brand Refresh', status: 'In progress', updated: 'Today' },
-  { id: 'project-2', name: 'UX Research Sprint', status: 'Review', updated: 'Yesterday' },
-  { id: 'project-3', name: 'Landing Page Concept', status: 'Draft', updated: '2 days ago' },
-]
+const defaultProjects = []
+const USER_PROJECTS_KEY = 'designspace-user-projects'
+const PROJECT_CANVAS_KEY = 'designspace-project-canvas'
+
+function readStoredProjects() {
+  try {
+    const raw = localStorage.getItem(USER_PROJECTS_KEY)
+    return raw ? JSON.parse(raw) : {}
+  } catch {
+    return {}
+  }
+}
+
+function getProjectsForUser(email) {
+  if (!email) return []
+  const stored = readStoredProjects()
+  return Array.isArray(stored[email]) ? stored[email] : []
+}
+
+function saveProjectsForUser(email, nextProjects) {
+  if (!email) return
+  const stored = readStoredProjects()
+  stored[email] = nextProjects
+  localStorage.setItem(USER_PROJECTS_KEY, JSON.stringify(stored))
+}
+
+function readStoredProjectCanvas() {
+  try {
+    const raw = localStorage.getItem(PROJECT_CANVAS_KEY)
+    return raw ? JSON.parse(raw) : {}
+  } catch {
+    return {}
+  }
+}
+
+function getCanvasForProject(email, projectId) {
+  if (!email || !projectId) return []
+  const stored = readStoredProjectCanvas()
+  const userCanvas = stored[email] || {}
+  return Array.isArray(userCanvas[projectId]) ? userCanvas[projectId] : []
+}
+
+function saveCanvasForProject(email, projectId, nextObjects) {
+  if (!email || !projectId) return
+  const stored = readStoredProjectCanvas()
+  stored[email] = stored[email] || {}
+
+  const normalized = nextObjects.map((object) => {
+    if (object.type === 'image' && object.image?.src) {
+      return { ...object, image: null, imageDataUrl: object.image.src }
+    }
+    return object
+  })
+
+  stored[email][projectId] = normalized
+  localStorage.setItem(PROJECT_CANVAS_KEY, JSON.stringify(stored))
+}
+
+const COMMENTS_KEY = 'designspace-project-comments'
+
+function readStoredComments() {
+  try {
+    const raw = localStorage.getItem(COMMENTS_KEY)
+    return raw ? JSON.parse(raw) : {}
+  } catch {
+    return {}
+  }
+}
+
+function getCommentsForProject(email, projectId) {
+  if (!email || !projectId) return []
+  const stored = readStoredComments()
+  const userComments = stored[email] || {}
+  return Array.isArray(userComments[projectId]) ? userComments[projectId] : []
+}
+
+function saveCommentsForProject(email, projectId, nextComments) {
+  if (!email || !projectId) return
+  const stored = readStoredComments()
+  stored[email] = stored[email] || {}
+  stored[email][projectId] = nextComments
+  localStorage.setItem(COMMENTS_KEY, JSON.stringify(stored))
+}
+
+function hydrateCanvasObjects(objects) {
+  return (objects || []).map((object) => {
+    if (object.type === 'image' && object.imageDataUrl) {
+      const image = new Image()
+      image.src = object.imageDataUrl
+      return { ...object, image }
+    }
+    return object
+  })
+}
 
 function getPasswordStrength(password) {
   if (!password) {
@@ -94,6 +200,7 @@ function App() {
   const drawingRef = useRef(false)
   const startPointRef = useRef(null)
   const snapshotRef = useRef(null)
+  const activeShapeIdRef = useRef(null)
 
   const [authMode, setAuthMode] = useState('login')
   const [showOtpLogin, setShowOtpLogin] = useState(false)
@@ -105,6 +212,16 @@ function App() {
   const [showForgotPassword, setShowForgotPassword] = useState(false)
   const [resetOtpSent, setResetOtpSent] = useState(false)
   const [resetOtpVerified, setResetOtpVerified] = useState(false)
+
+  useEffect(() => {
+    setForm({ name: '', email: '', password: '', otp: '' })
+    setResetPasswordForm({ otp: '', password: '' })
+    setShowPassword(false)
+    setShowForgotPassword(false)
+    setResetOtpSent(false)
+    setResetOtpVerified(false)
+    setStatus('')
+  }, [])
   const [resetPasswordForm, setResetPasswordForm] = useState({ otp: '', password: '' })
   const [showAccountPanel, setShowAccountPanel] = useState(false)
   const [accountForm, setAccountForm] = useState({ name: '', avatar: '', password: '' })
@@ -112,19 +229,179 @@ function App() {
   const [messageText, setMessageText] = useState('')
   const [teamNameInput, setTeamNameInput] = useState('')
   const [projectNameInput, setProjectNameInput] = useState('')
+  const [projectPrivacy, setProjectPrivacy] = useState('private')
+  const [projectMembersInput, setProjectMembersInput] = useState('')
   const [activeTab, setActiveTab] = useState('projects')
+  const [selectedSidebarItem, setSelectedSidebarItem] = useState('projects')
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [selectedProjectId, setSelectedProjectId] = useState(defaultProjects[0]?.id || '')
   const [tool, setTool] = useState('pencil')
   const [lineColor, setLineColor] = useState('#7c3aed')
   const [lineWidth, setLineWidth] = useState(3)
+  const [textEditingId, setTextEditingId] = useState(null)
+  const [textDraft, setTextDraft] = useState('')
   const [canvasHistory, setCanvasHistory] = useState([])
   const [canvasFuture, setCanvasFuture] = useState([])
+  const [canvasObjects, setCanvasObjects] = useState([])
+  const [selectedBoxId, setSelectedBoxId] = useState(null)
+  const [canvasInteraction, setCanvasInteraction] = useState(null)
+  const [canvasCursor, setCanvasCursor] = useState({ visible: false, x: 0, y: 0, icon: TOOL_ICONS.pencil })
+  const [commentDraft, setCommentDraft] = useState('')
+  const [boardComments, setBoardComments] = useState([])
+  const [isCanvasRailOpen, setIsCanvasRailOpen] = useState(true)
+  const [isCommentPanelOpen, setIsCommentPanelOpen] = useState(true)
+  const [commentPanelWidth, setCommentPanelWidth] = useState(360)
+  const [isCommentPanelResizing, setIsCommentPanelResizing] = useState(false)
   const [groups, setGroups] = useState(defaultGroups)
   const [activeTasks, setActiveTasks] = useState(defaultTasks)
-  const [projects, setProjects] = useState(defaultProjects)
+  const [projects, setProjects] = useState(() => getProjectsForUser(user?.email))
 
   const passwordStrength = getPasswordStrength(form.password)
   const selectedProject = projects.find((project) => project.id === selectedProjectId) || projects[0]
+  const selectedTextObject = canvasObjects.find((object) => object.type === 'text' && object.id === (selectedBoxId || textEditingId)) || null
+
+  const renderCanvasScene = () => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    const ctx = canvas.getContext('2d')
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    ctx.fillStyle = '#f8fafc'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+    canvasObjects.forEach((object) => {
+      if (object.type === 'image') {
+        const image = object.image
+        if (image) {
+          ctx.drawImage(image, object.x, object.y, object.w, object.h)
+        }
+        if (selectedBoxId === object.id) {
+          ctx.strokeStyle = '#7c3aed'
+          ctx.lineWidth = 2
+          ctx.strokeRect(object.x, object.y, object.w, object.h)
+          const handles = [
+            [object.x, object.y],
+            [object.x + object.w, object.y],
+            [object.x, object.y + object.h],
+            [object.x + object.w, object.y + object.h],
+          ]
+          ctx.fillStyle = '#7c3aed'
+          handles.forEach(([handleX, handleY]) => {
+            ctx.fillRect(handleX - 5, handleY - 5, 10, 10)
+          })
+        }
+        return
+      }
+
+      if (object.type === 'text') {
+        const text = object.label || 'Text'
+        const fontFamily = object.fontFamily || 'sans-serif'
+        const fontSize = object.fontSize || 26
+        const boxWidth = Math.max(100, Number(object.w) || (text.length * fontSize * 0.62))
+        const boxHeight = Math.max(32, Number(object.h) || fontSize + 16)
+
+        ctx.fillStyle = object.color || '#0f172a'
+        ctx.font = `600 ${fontSize}px ${fontFamily}`
+        ctx.fillText(text, object.x, object.y + fontSize)
+
+        if (selectedBoxId === object.id || textEditingId === object.id) {
+          ctx.strokeStyle = '#7c3aed'
+          ctx.lineWidth = 2
+          ctx.strokeRect(object.x - 8, object.y - 8, boxWidth + 16, boxHeight + 16)
+        }
+        return
+      }
+
+      if (object.type === 'shape') {
+        ctx.strokeStyle = object.color || '#7c3aed'
+        ctx.lineWidth = object.width || 3
+        ctx.lineCap = 'round'
+        ctx.lineJoin = 'round'
+        ctx.beginPath()
+
+        if (object.tool === 'pencil' || object.tool === 'eraser') {
+          const points = object.points || []
+          if (points.length > 0) {
+            ctx.moveTo(points[0].x, points[0].y)
+            points.slice(1).forEach((point) => ctx.lineTo(point.x, point.y))
+            ctx.stroke()
+          }
+          return
+        }
+
+        if (object.tool === 'line') {
+          ctx.moveTo(object.start.x, object.start.y)
+          ctx.lineTo(object.end.x, object.end.y)
+          ctx.stroke()
+          return
+        }
+
+        if (object.tool === 'rectangle') {
+          const x = Math.min(object.start.x, object.end.x)
+          const y = Math.min(object.start.y, object.end.y)
+          const width = Math.abs(object.end.x - object.start.x)
+          const height = Math.abs(object.end.y - object.start.y)
+          ctx.strokeRect(x, y, width, height)
+          return
+        }
+
+        if (object.tool === 'circle') {
+          const radius = Math.hypot(object.end.x - object.start.x, object.end.y - object.start.y)
+          ctx.arc(object.start.x, object.start.y, radius, 0, Math.PI * 2)
+          ctx.stroke()
+        }
+        return
+      }
+
+      ctx.strokeStyle = '#8b5cf6'
+      ctx.lineWidth = 2
+      ctx.setLineDash([])
+      ctx.strokeRect(object.x, object.y, object.w, object.h)
+      ctx.fillStyle = '#8b5cf6'
+      ctx.font = '600 26px sans-serif'
+      ctx.fillText(object.label, object.x + 20, object.y + 42)
+
+      if (selectedBoxId === object.id) {
+        const handles = [
+          [object.x, object.y],
+          [object.x + object.w, object.y],
+          [object.x, object.y + object.h],
+          [object.x + object.w, object.y + object.h],
+        ]
+
+        ctx.fillStyle = '#7c3aed'
+        handles.forEach(([handleX, handleY]) => {
+          ctx.fillRect(handleX - 5, handleY - 5, 10, 10)
+        })
+      }
+    })
+  }
+
+  const getBoxAtPoint = (point) => {
+    for (const object of canvasObjects) {
+      const handles = [
+        { x: object.x, y: object.y },
+        { x: object.x + object.w, y: object.y },
+        { x: object.x, y: object.y + object.h },
+        { x: object.x + object.w, y: object.y + object.h },
+      ]
+
+      const handleHit = handles.find((handle) => Math.hypot(point.x - handle.x, point.y - handle.y) < 12)
+      if (handleHit) {
+        const handle =
+          handleHit.x === object.x && handleHit.y === object.y ? 'nw' :
+          handleHit.x === object.x + object.w && handleHit.y === object.y ? 'ne' :
+          handleHit.x === object.x && handleHit.y === object.y + object.h ? 'sw' : 'se'
+        return { kind: 'resize', boxId: object.id, handle }
+      }
+
+      if (point.x >= object.x && point.x <= object.x + object.w && point.y >= object.y && point.y <= object.y + object.h) {
+        return { kind: 'move', boxId: object.id }
+      }
+    }
+
+    return null
+  }
 
   useEffect(() => {
     if (!user) return undefined
@@ -150,23 +427,58 @@ function App() {
     const canvas = canvasRef.current
     if (!canvas || activeTab !== 'projects') return
 
+    renderCanvasScene()
     const ctx = canvas.getContext('2d')
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
-    ctx.fillStyle = '#f8fafc'
-    ctx.fillRect(0, 0, canvas.width, canvas.height)
     ctx.lineCap = 'round'
     ctx.lineJoin = 'round'
     ctx.strokeStyle = lineColor
     ctx.lineWidth = lineWidth
-  }, [activeTab, lineColor, lineWidth])
+  }, [activeTab, lineColor, lineWidth, canvasObjects, selectedBoxId])
 
   const handleChange = (event) => {
     const { name, value } = event.target
     setForm((current) => ({ ...current, [name]: value }))
   }
 
+  const openTextEditor = (objectId) => {
+    const object = canvasObjects.find((item) => item.id === objectId)
+    if (!object || object.type !== 'text') return
+
+    setSelectedBoxId(objectId)
+    setTextEditingId(objectId)
+    setTextDraft(object.label || '')
+  }
+
+  const handleAddComment = (event) => {
+    event.preventDefault()
+    if (!commentDraft.trim()) return
+
+    const nextComment = {
+      id: `comment-${Date.now()}`,
+      user: user?.name || user?.email || 'You',
+      email: user?.email || 'you@designspace.io',
+      text: commentDraft.trim(),
+      time: 'Just now',
+    }
+
+    setBoardComments((current) => [...current, nextComment])
+    setCommentDraft('')
+  }
+
+  const scrollToAuth = (mode = 'signup') => {
+    setAuthMode(mode)
+    setShowOtpLogin(false)
+    setShowForgotPassword(false)
+    setTimeout(() => {
+      document.getElementById('landing-auth')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 0)
+  }
+
   useEffect(() => {
     if (user) {
+      const storedProjects = getProjectsForUser(user.email)
+      setProjects(storedProjects)
+      setSelectedProjectId(storedProjects[0]?.id || '')
       setAccountForm({
         name: user.name || '',
         avatar: user.avatar || '',
@@ -174,6 +486,49 @@ function App() {
       })
     }
   }, [user])
+
+  useEffect(() => {
+    if (!user?.email || !selectedProjectId) return
+
+    const savedCanvas = hydrateCanvasObjects(getCanvasForProject(user.email, selectedProjectId))
+    setCanvasObjects(savedCanvas)
+    setSelectedBoxId(null)
+  }, [user?.email, selectedProjectId])
+
+  useEffect(() => {
+    if (!user?.email || !selectedProjectId) return
+    saveCanvasForProject(user.email, selectedProjectId, canvasObjects)
+  }, [user?.email, selectedProjectId, canvasObjects])
+
+  useEffect(() => {
+    if (!isCommentPanelResizing) return undefined
+
+    const handlePointerMove = (event) => {
+      const nextWidth = window.innerWidth - event.clientX - 28
+      const boundedWidth = Math.min(520, Math.max(260, nextWidth))
+      setCommentPanelWidth(boundedWidth)
+    }
+
+    const handlePointerUp = () => setIsCommentPanelResizing(false)
+
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', handlePointerUp)
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', handlePointerUp)
+    }
+  }, [isCommentPanelResizing])
+
+  useEffect(() => {
+    if (!user?.email || !selectedProjectId) return
+    setBoardComments(getCommentsForProject(user.email, selectedProjectId))
+  }, [user?.email, selectedProjectId])
+
+  useEffect(() => {
+    if (!user?.email || !selectedProjectId) return
+    saveCommentsForProject(user.email, selectedProjectId, boardComments)
+  }, [user?.email, selectedProjectId, boardComments])
 
   const validateAuthForm = (mode) => {
     if (mode === 'signup' && !form.name.trim()) {
@@ -273,11 +628,13 @@ function App() {
         email: form.email || 'demo@designspace.io',
         role: 'member',
       }
-      setUser({ ...loggedUser, token: data.token || loggedUser.token || '' })
+      const nextUser = { ...loggedUser, token: data.token || loggedUser.token || '' }
+      setUser(nextUser)
       setGroups(defaultGroups)
       setActiveTasks(defaultTasks)
-      setProjects(defaultProjects)
-      setSelectedProjectId(defaultProjects[0]?.id || '')
+      const storedProjects = getProjectsForUser(nextUser.email)
+      setProjects(storedProjects)
+      setSelectedProjectId(storedProjects[0]?.id || '')
       setStatus(`${activeMode === 'signup' ? 'Account created' : activeMode === 'otp' ? 'OTP verified' : 'Logged in'} successfully.`)
       setOtpSent(false)
       setShowOtpLogin(false)
@@ -295,8 +652,9 @@ function App() {
       setUser(fallbackUser)
       setGroups(defaultGroups)
       setActiveTasks(defaultTasks)
-      setProjects(defaultProjects)
-      setSelectedProjectId(defaultProjects[0]?.id || '')
+      const storedProjects = getProjectsForUser(fallbackUser.email)
+      setProjects(storedProjects)
+      setSelectedProjectId(storedProjects[0]?.id || '')
       setOtpSent(false)
       setShowOtpLogin(false)
       setForm((current) => ({ ...current, password: '', otp: '' }))
@@ -521,6 +879,10 @@ function App() {
         throw new Error(data.message || 'Account deletion failed.')
       }
 
+      const storedProjects = readStoredProjects()
+      delete storedProjects[user.email]
+      localStorage.setItem(USER_PROJECTS_KEY, JSON.stringify(storedProjects))
+
       setUser(null)
       setShowAccountPanel(false)
       setStatus('Account deleted. Please sign up again to continue.')
@@ -588,71 +950,218 @@ function App() {
     const canvas = canvasRef.current
     if (!canvas) return
 
-    const ctx = canvas.getContext('2d')
     const point = getPointerPosition(event)
+    setCanvasCursor((current) => ({ ...current, visible: true, x: event.clientX - canvas.getBoundingClientRect().left, y: event.clientY - canvas.getBoundingClientRect().top, icon: TOOL_ICONS[tool] || TOOL_ICONS.pencil }))
+    const hit = getBoxAtPoint(point)
+
+    if (hit) {
+      const object = canvasObjects.find((item) => item.id === hit.boxId)
+      if (!object) return
+
+      setSelectedBoxId(object.id)
+      if (object.type === 'text') {
+        openTextEditor(object.id)
+      } else {
+        setTextEditingId(null)
+      }
+      setCanvasInteraction({
+        kind: hit.kind,
+        boxId: object.id,
+        handle: hit.handle,
+        startX: point.x,
+        startY: point.y,
+        original: { ...object },
+      })
+      return
+    }
+
+    if (tool === 'select') {
+      setSelectedBoxId(null)
+      setTextEditingId(null)
+      setTextDraft('')
+      return
+    }
+
+    if (tool === 'text') {
+      const initialFontSize = Math.max(20, lineWidth * 8)
+      const nextObject = {
+        id: `text-${Date.now()}`,
+        type: 'text',
+        label: '',
+        x: point.x,
+        y: point.y,
+        w: 160,
+        h: initialFontSize + 18,
+        color: lineColor,
+        fontSize: initialFontSize,
+        fontFamily: 'sans-serif',
+        editing: true,
+      }
+
+      setCanvasObjects((current) => [...current, nextObject])
+      setSelectedBoxId(nextObject.id)
+      setTextEditingId(nextObject.id)
+      setTextDraft('')
+      return
+    }
+
+    const shapeId = `shape-${Date.now()}`
+    activeShapeIdRef.current = shapeId
+    const newShape = {
+      id: shapeId,
+      type: 'shape',
+      tool,
+      start: point,
+      end: point,
+      points: [point],
+      color: tool === 'eraser' ? '#f8fafc' : lineColor,
+      width: tool === 'eraser' ? 18 : lineWidth,
+    }
+
+    setCanvasObjects((current) => [...current, newShape])
     startPointRef.current = point
     drawingRef.current = true
     snapshotRef.current = canvas.toDataURL()
     saveCanvasSnapshot()
-
-    ctx.beginPath()
-    ctx.moveTo(point.x, point.y)
-    ctx.lineTo(point.x, point.y)
-    ctx.strokeStyle = tool === 'eraser' ? '#f8fafc' : lineColor
-    ctx.lineWidth = tool === 'eraser' ? 18 : lineWidth
-    ctx.stroke()
   }
 
   const draw = (event) => {
-    if (!drawingRef.current || !canvasRef.current) return
-
     const canvas = canvasRef.current
-    const ctx = canvas.getContext('2d')
-    const point = getPointerPosition(event)
-    const start = startPointRef.current || point
+    if (canvas) {
+      setCanvasCursor((current) => ({
+        ...current,
+        visible: true,
+        x: event.clientX - canvas.getBoundingClientRect().left,
+        y: event.clientY - canvas.getBoundingClientRect().top,
+        icon: TOOL_ICONS[tool] || TOOL_ICONS.pencil,
+      }))
+    }
 
-    if (tool === 'pencil' || tool === 'eraser') {
-      ctx.strokeStyle = tool === 'eraser' ? '#f8fafc' : lineColor
-      ctx.lineWidth = tool === 'eraser' ? 18 : lineWidth
-      ctx.lineTo(point.x, point.y)
-      ctx.stroke()
-      ctx.beginPath()
-      ctx.moveTo(point.x, point.y)
+    if (canvasInteraction) {
+      if (!canvas) return
+
+      const point = getPointerPosition(event)
+      const { boxId, kind, handle, original, startX, startY } = canvasInteraction
+      const dx = point.x - startX
+      const dy = point.y - startY
+
+      setCanvasObjects((current) => current.map((object) => {
+        if (object.id !== boxId) return object
+
+        if (kind === 'move') {
+          return {
+            ...object,
+            x: Math.max(0, Math.min(canvas.width - object.w, original.x + dx)),
+            y: Math.max(0, Math.min(canvas.height - object.h, original.y + dy)),
+          }
+        }
+
+        let nextX = original.x
+        let nextY = original.y
+        let nextW = original.w
+        let nextH = original.h
+
+        if (handle.includes('e')) {
+          nextW = Math.max(60, original.w + dx)
+        }
+
+        if (handle.includes('s')) {
+          nextH = Math.max(60, original.h + dy)
+        }
+
+        if (handle.includes('w')) {
+          const proposedW = original.w - dx
+          if (proposedW >= 60) {
+            nextX = original.x + dx
+            nextW = proposedW
+          }
+        }
+
+        if (handle.includes('n')) {
+          const proposedH = original.h - dy
+          if (proposedH >= 60) {
+            nextY = original.y + dy
+            nextH = proposedH
+          }
+        }
+
+        if (object.type === 'text') {
+          const nextFontSize = Math.max(16, Math.min(72, Math.round(Math.max(nextH, nextW / Math.max(1, (object.label?.length || 12) * 0.55)))))
+          return {
+            ...object,
+            x: Math.max(0, nextX),
+            y: Math.max(0, nextY),
+            w: Math.max(120, nextW),
+            h: Math.max(38, nextH),
+            fontSize: nextFontSize,
+          }
+        }
+
+        return { ...object, x: Math.max(0, nextX), y: Math.max(0, nextY), w: nextW, h: nextH }
+      }))
       return
     }
 
-    if (snapshotRef.current) {
-      restoreCanvasFromSnapshot(snapshotRef.current)
+    if (!drawingRef.current || !canvasRef.current) return
+
+    const point = getPointerPosition(event)
+    if (tool === 'pencil' || tool === 'eraser') {
+      setCanvasObjects((current) => current.map((object) => {
+        if (object.id !== activeShapeIdRef.current) return object
+        return {
+          ...object,
+          end: point,
+          points: [...(object.points || []), point],
+        }
+      }))
+      return
     }
 
-    ctx.strokeStyle = lineColor
-    ctx.lineWidth = lineWidth
-    ctx.beginPath()
-
-    if (tool === 'line') {
-      ctx.moveTo(start.x, start.y)
-      ctx.lineTo(point.x, point.y)
-    }
-
-    if (tool === 'rectangle') {
-      ctx.strokeRect(start.x, start.y, point.x - start.x, point.y - start.y)
-    }
-
-    if (tool === 'circle') {
-      const radius = Math.hypot(point.x - start.x, point.y - start.y)
-      ctx.arc(start.x, start.y, radius, 0, Math.PI * 2)
-      ctx.stroke()
-    }
-
-    if (tool === 'line') {
-      ctx.stroke()
-    }
+    setCanvasObjects((current) => current.map((object) => {
+      if (object.id !== activeShapeIdRef.current) return object
+      return { ...object, end: point }
+    }))
   }
 
   const stopDrawing = () => {
     drawingRef.current = false
     startPointRef.current = null
     snapshotRef.current = null
+    activeShapeIdRef.current = null
+    setCanvasInteraction(null)
+    setCanvasCursor((current) => ({ ...current, visible: false }))
+  }
+
+  const finalizeTextBox = () => {
+    if (!textEditingId) return
+
+    const finalText = textDraft.trim() || 'Text'
+    setCanvasObjects((current) => current.map((object) => {
+      if (object.id !== textEditingId) return object
+      return {
+        ...object,
+        label: finalText,
+        w: Math.max(120, Math.min(420, Math.max(object.w || 160, finalText.length * (object.fontSize || 26) * 0.56))),
+        h: Math.max(38, (object.fontSize || 26) + 18),
+        editing: false,
+      }
+    }))
+    setTextEditingId(null)
+    setTextDraft('')
+  }
+
+  const updateSelectedTextStyle = (updates) => {
+    if (!selectedBoxId) return
+
+    setCanvasObjects((current) => current.map((object) => {
+      if (object.id !== selectedBoxId || object.type !== 'text') return object
+      return {
+        ...object,
+        ...updates,
+        w: Math.max(120, updates.w ?? object.w ?? 160),
+        h: Math.max(38, updates.h ?? object.h ?? (object.fontSize || 26) + 18),
+      }
+    }))
   }
 
   const clearCanvas = () => {
@@ -660,19 +1169,34 @@ function App() {
     if (!canvas) return
 
     saveCanvasSnapshot()
+    setCanvasObjects([])
+    setSelectedBoxId(null)
     const ctx = canvas.getContext('2d')
     ctx.clearRect(0, 0, canvas.width, canvas.height)
     ctx.fillStyle = '#f8fafc'
     ctx.fillRect(0, 0, canvas.width, canvas.height)
   }
 
+  const handleCanvasDoubleClick = (event) => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    const point = getPointerPosition(event)
+    const hit = getBoxAtPoint(point)
+    if (!hit) return
+
+    const object = canvasObjects.find((item) => item.id === hit.boxId)
+    if (object?.type === 'text') {
+      openTextEditor(object.id)
+    }
+  }
+
   const handleMediaUpload = (event) => {
     const file = event.target.files?.[0]
     if (!file || !canvasRef.current) return
 
-    const canvas = canvasRef.current
-    const ctx = canvas.getContext('2d')
     const url = URL.createObjectURL(file)
+    const canvas = canvasRef.current
 
     if (file.type.startsWith('image/')) {
       const image = new Image()
@@ -683,8 +1207,19 @@ function App() {
         const height = image.height * ratio
         const x = 24 + (canvas.width - width) / 2
         const y = 30 + (canvas.height - height) / 2
-        saveCanvasSnapshot()
-        ctx.drawImage(image, x, y, width, height)
+
+        const nextObject = {
+          id: `image-${Date.now()}`,
+          type: 'image',
+          image,
+          x,
+          y,
+          w: width,
+          h: height,
+        }
+
+        setCanvasObjects((current) => [...current, nextObject])
+        setSelectedBoxId(nextObject.id)
       }
       image.src = url
     }
@@ -696,15 +1231,18 @@ function App() {
       video.playsInline = true
       video.play().catch(() => {})
 
-      const animate = () => {
-        if (!video.ended) {
-          saveCanvasSnapshot()
-          ctx.drawImage(video, 28, 26, 260, 180)
-          requestAnimationFrame(animate)
-        }
+      const nextObject = {
+        id: `video-${Date.now()}`,
+        type: 'video',
+        video,
+        x: 28,
+        y: 26,
+        w: 260,
+        h: 180,
       }
 
-      animate()
+      setCanvasObjects((current) => [...current, nextObject])
+      setSelectedBoxId(nextObject.id)
     }
 
     event.target.value = ''
@@ -713,6 +1251,29 @@ function App() {
   const applyCanvasTemplate = (templateType = 'blank') => {
     const canvas = canvasRef.current
     if (!canvas) return
+
+    const templateMap = {
+      blank: [],
+      wireframe: [
+        { id: 'wireframe-hero', type: 'box', x: 60, y: 60, w: 260, h: 150, label: 'Hero section' },
+        { id: 'wireframe-feature', type: 'box', x: 360, y: 90, w: 300, h: 150, label: 'Feature block' },
+        { id: 'wireframe-cta', type: 'box', x: 120, y: 270, w: 280, h: 120, label: 'CTA area' },
+      ],
+      moodboard: [
+        { id: 'moodboard-1', type: 'box', x: 60, y: 60, w: 210, h: 150, label: 'Moodboard' },
+        { id: 'moodboard-2', type: 'box', x: 300, y: 70, w: 220, h: 170, label: 'Palette' },
+        { id: 'moodboard-3', type: 'box', x: 140, y: 260, w: 250, h: 120, label: 'Brand story' },
+      ],
+      storyboard: [
+        { id: 'story-1', type: 'box', x: 50, y: 50, w: 220, h: 160, label: 'Scene 1' },
+        { id: 'story-2', type: 'box', x: 310, y: 70, w: 220, h: 140, label: 'Scene 2' },
+        { id: 'story-3', type: 'box', x: 120, y: 260, w: 260, h: 140, label: 'Scene 3' },
+      ],
+    }
+
+    const objects = templateMap[templateType] || []
+    setCanvasObjects(objects)
+    setSelectedBoxId(objects[0]?.id || null)
 
     const ctx = canvas.getContext('2d')
     ctx.clearRect(0, 0, canvas.width, canvas.height)
@@ -727,63 +1288,21 @@ function App() {
     ctx.lineWidth = 1
     ctx.setLineDash([6, 8])
 
-    if (templateType === 'wireframe') {
-      for (let x = 40; x < canvas.width; x += 80) {
-        ctx.beginPath()
-        ctx.moveTo(x, 0)
-        ctx.lineTo(x, canvas.height)
-        ctx.stroke()
-      }
-
-      for (let y = 40; y < canvas.height; y += 80) {
-        ctx.beginPath()
-        ctx.moveTo(0, y)
-        ctx.lineTo(canvas.width, y)
-        ctx.stroke()
-      }
-
-      ctx.setLineDash([])
-      ctx.strokeStyle = '#7c3aed'
-      ctx.strokeRect(60, 60, 220, 150)
-      ctx.strokeRect(320, 90, 250, 140)
-      ctx.strokeRect(120, 270, 230, 120)
-      ctx.fillStyle = '#7c3aed'
-      ctx.font = '600 18px sans-serif'
-      ctx.fillText('Hero section', 80, 90)
-      ctx.fillText('Feature block', 350, 120)
-      ctx.fillText('CTA area', 150, 300)
-      return
+    for (let x = 40; x < canvas.width; x += 80) {
+      ctx.beginPath()
+      ctx.moveTo(x, 0)
+      ctx.lineTo(x, canvas.height)
+      ctx.stroke()
     }
 
-    if (templateType === 'moodboard') {
-      ctx.setLineDash([])
-      ctx.fillStyle = '#e9d5ff'
-      ctx.fillRect(60, 60, 210, 150)
-      ctx.fillStyle = '#dbeafe'
-      ctx.fillRect(310, 70, 220, 170)
-      ctx.fillStyle = '#dcfce7'
-      ctx.fillRect(140, 260, 250, 120)
-      ctx.fillStyle = '#111827'
-      ctx.font = '600 18px sans-serif'
-      ctx.fillText('Moodboard', 90, 90)
-      ctx.fillText('Palette', 350, 100)
-      ctx.fillText('Brand story', 180, 290)
-      return
+    for (let y = 40; y < canvas.height; y += 80) {
+      ctx.beginPath()
+      ctx.moveTo(0, y)
+      ctx.lineTo(canvas.width, y)
+      ctx.stroke()
     }
 
-    ctx.setLineDash([])
-    ctx.fillStyle = '#f8fafc'
-    ctx.fillRect(0, 0, canvas.width, canvas.height)
-
-    ctx.strokeStyle = '#94a3b8'
-    ctx.fillStyle = '#111827'
-    ctx.font = '600 24px sans-serif'
-    ctx.strokeRect(50, 50, 220, 160)
-    ctx.strokeRect(310, 70, 220, 140)
-    ctx.strokeRect(120, 260, 260, 140)
-    ctx.fillText('Scene 1', 80, 90)
-    ctx.fillText('Scene 2', 350, 110)
-    ctx.fillText('Scene 3', 160, 300)
+    renderCanvasScene()
   }
 
   const downloadBlob = (blob, filename) => {
@@ -923,143 +1442,347 @@ function App() {
       return
     }
 
+    const members = projectMembersInput
+      .split(',')
+      .map((member) => member.trim())
+      .filter(Boolean)
+
     const nextProject = {
       id: `project-${Date.now()}`,
       name: projectName,
       status: 'Draft',
       updated: 'Just now',
+      privacy: projectPrivacy,
+      members: members.length ? members : [user?.email || 'you@designspace.io'],
     }
 
-    setProjects((current) => [nextProject, ...current])
+    setProjects((current) => {
+      const nextProjects = [nextProject, ...current]
+      saveProjectsForUser(user?.email || 'demo@designspace.io', nextProjects)
+      return nextProjects
+    })
     setSelectedProjectId(nextProject.id)
     setProjectNameInput('')
+    setProjectMembersInput('')
+    setProjectPrivacy('private')
     setStatus(`Project “${projectName}” created.`)
   }
+
+  const activeCollaborators = selectedProject?.members?.length
+    ? selectedProject.members
+    : team.members || []
 
   const renderProjects = () => (
     <div className="content-stack">
       <div className="panel compact-form-panel">
-        <form className="compact-form" onSubmit={handleCreateProject}>
+        <form className="project-creation-form" onSubmit={handleCreateProject}>
           <input
             value={projectNameInput}
             onChange={(event) => setProjectNameInput(event.target.value)}
-            placeholder="Create a project"
+            placeholder="Project name"
+          />
+          <select value={projectPrivacy} onChange={(event) => setProjectPrivacy(event.target.value)}>
+            <option value="private">Private</option>
+            <option value="public">Public</option>
+          </select>
+          <input
+            value={projectMembersInput}
+            onChange={(event) => setProjectMembersInput(event.target.value)}
+            placeholder="Add members, comma separated"
           />
           <button type="submit" className="primary-btn small">Create project</button>
         </form>
       </div>
 
-      <div className="project-layout">
-        <aside className="panel project-sidebar">
-          <h4>My projects</h4>
-          <div className="project-list">
-            {projects.map((project) => (
-              <button
-                type="button"
-                key={project.id}
-                className={selectedProject && selectedProject.id === project.id ? 'project-item active' : 'project-item'}
-                onClick={() => setSelectedProjectId(project.id)}
-              >
-                <strong>{project.name}</strong>
-                <span>{project.status}</span>
-                <em>{project.updated}</em>
-              </button>
-            ))}
-          </div>
-        </aside>
-
-        <div className="panel project-detail">
-          <p className="eyebrow">Selected project</p>
-          <h3>{selectedProject?.name || 'No project selected'}</h3>
-          <div className="project-meta">
-            <span>{selectedProject?.status || 'Draft'}</span>
-            <span>Updated {selectedProject?.updated || 'today'}</span>
-          </div>
-          <p className="project-summary">Open this project’s workspace to continue designing, reviewing, and collaborating with your team.</p>
+      {projects.length === 0 ? (
+        <div className="panel empty-state">
+          <p className="eyebrow">Projects</p>
+          <h3>No projects yet</h3>
+          <p>Create your first board and invite your team to start collaborating.</p>
         </div>
-      </div>
+      ) : (
+        <>
+          <div className="project-layout">
+            <aside className="panel project-sidebar">
+              <h4>My projects</h4>
+              <div className="project-list">
+                {projects.map((project) => (
+                  <button
+                    type="button"
+                    key={project.id}
+                    className={selectedProject && selectedProject.id === project.id ? 'project-item active' : 'project-item'}
+                    onClick={() => setSelectedProjectId(project.id)}
+                  >
+                    <strong>{project.name}</strong>
+                    <span>{project.privacy || 'private'}</span>
+                    <em>{project.members?.length || 1} member(s)</em>
+                  </button>
+                ))}
+              </div>
+            </aside>
 
-      <div className="panel project-panel">
-        <div className="project-toolbar">
-          <div>
-            <p className="eyebrow">Collaboration board</p>
-            <h3>{selectedProject?.name || 'Design workspace'}</h3>
+            <div className="panel project-detail">
+              <p className="eyebrow">Selected project</p>
+              <h3>{selectedProject?.name || 'No project selected'}</h3>
+              <div className="project-meta">
+                <span>{selectedProject?.privacy || 'private'}</span>
+                <span>{selectedProject?.members?.length || 1} members</span>
+                <span>Updated {selectedProject?.updated || 'today'}</span>
+              </div>
+              <p className="project-summary">Use this shared workspace to sketch, review, and refine ideas in real time with your team.</p>
+            </div>
           </div>
 
-          <div className="toolbar-actions">
-            <div className="tool-list">
-              {DRAW_TOOLS.map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  className={tool === item ? 'tool-button active' : 'tool-button'}
-                  onClick={() => setTool(item)}
-                >
-                  {item}
-                </button>
-              ))}
+          <div className="panel project-panel">
+            <div className="canvas-top-toolbar">
+              <button type="button" className="editor-tab active">Edit</button>
+              <button type="button" className="editor-tab">Animate</button>
+              <button type="button" className="editor-tab">Position</button>
+              <div className="toolbar-icons">
+                <button type="button" aria-label="share">↗</button>
+                <button type="button" aria-label="duplicate">⧉</button>
+                <button type="button" aria-label="grid">▦</button>
+              </div>
             </div>
 
-            <div className="template-list">
-              {['blank', 'wireframe', 'moodboard', 'storyboard'].map((template) => (
+            <div className="design-workspace-shell">
+              <aside className={isCanvasRailOpen ? 'canvas-rail open' : 'canvas-rail closed'}>
                 <button
-                  key={template}
                   type="button"
-                  className="secondary-btn small"
-                  onClick={() => applyCanvasTemplate(template)}
+                  className="rail-toggle"
+                  onClick={() => setIsCanvasRailOpen((current) => !current)}
+                  aria-label={isCanvasRailOpen ? 'Collapse tools' : 'Expand tools'}
                 >
-                  {template}
+                  {isCanvasRailOpen ? '←' : '→'}
                 </button>
-              ))}
+
+                {isCanvasRailOpen && DRAW_TOOLS.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    title={item.id}
+                    className={tool === item.id ? 'tool-button active' : 'tool-button'}
+                    onClick={() => setTool(item.id)}
+                  >
+                    <span className="tool-symbol">{TOOL_ICONS[item.id] || item.label[0]}</span>
+                    <span className="tool-name">{item.label}</span>
+                  </button>
+                ))}
+              </aside>
+
+              <div className="canvas-main-area">
+                <div className="project-toolbar">
+                  <div>
+                    <p className="eyebrow">Live canvas</p>
+                    <h3>{selectedProject?.name || 'Blank canvas'}</h3>
+                  </div>
+
+                  <div className="toolbar-actions">
+                    <div className="template-list">
+                      {['blank', 'wireframe', 'moodboard', 'storyboard'].map((template) => (
+                        <button
+                          key={template}
+                          type="button"
+                          className="secondary-btn small"
+                          onClick={() => applyCanvasTemplate(template)}
+                        >
+                          {template}
+                        </button>
+                      ))}
+                    </div>
+
+                    <button type="button" className="secondary-btn small" onClick={() => fileInputRef.current?.click()}>
+                      Upload media
+                    </button>
+                    <button type="button" className="secondary-btn small" onClick={handleUndo} disabled={canvasHistory.length === 0}>
+                      Undo
+                    </button>
+                    <button type="button" className="secondary-btn small" onClick={handleRedo} disabled={canvasFuture.length === 0}>
+                      Redo
+                    </button>
+                    <button type="button" className="secondary-btn small" onClick={() => handleExportCanvas('png')}>
+                      Save PNG
+                    </button>
+                    <button type="button" className="secondary-btn small" onClick={() => handleExportCanvas('jpeg')}>
+                      Save JPEG
+                    </button>
+                    <button type="button" className="secondary-btn small" onClick={() => handleExportCanvas('mp3')}>
+                      Save MP3
+                    </button>
+                    <button type="button" className="primary-btn small" onClick={clearCanvas}>
+                      Clear canvas
+                    </button>
+                    <input ref={fileInputRef} type="file" accept="image/*,video/*" hidden onChange={handleMediaUpload} />
+                  </div>
+                </div>
+
+                <div className="canvas-collaborators">
+                  {activeCollaborators.slice(0, 4).map((member, index) => (
+                    <div key={`${member}-${index}`} className="collaborator-pill" style={{ '--member-color': ['#8b5cf6', '#22c55e', '#f59e0b', '#38bdf8'][index % 4] }}>
+                      <span className="cursor-dot" />
+                      {member}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="canvas-settings">
+                  {selectedTextObject ? (
+                    <>
+                      <label>
+                        Text color
+                        <input
+                          type="color"
+                          value={selectedTextObject.color || '#0f172a'}
+                          onChange={(event) => updateSelectedTextStyle({ color: event.target.value })}
+                        />
+                      </label>
+                      <label>
+                        Font size
+                        <input
+                          type="range"
+                          min="16"
+                          max="72"
+                          value={selectedTextObject.fontSize || 26}
+                          onChange={(event) => updateSelectedTextStyle({ fontSize: Number(event.target.value), h: Number(event.target.value) + 18 })}
+                        />
+                      </label>
+                      <label>
+                        Font
+                        <select
+                          value={selectedTextObject.fontFamily || 'sans-serif'}
+                          onChange={(event) => updateSelectedTextStyle({ fontFamily: event.target.value })}
+                        >
+                          <option value="sans-serif">Sans</option>
+                          <option value="Georgia, serif">Serif</option>
+                          <option value="'Courier New', monospace">Mono</option>
+                          <option value="'Brush Script MT', cursive">Script</option>
+                        </select>
+                      </label>
+                    </>
+                  ) : (
+                    <>
+                      <label>
+                        Brush color
+                        <input type="color" value={lineColor} onChange={(event) => setLineColor(event.target.value)} />
+                      </label>
+                      <label>
+                        Brush size
+                        <input type="range" min="2" max="18" value={lineWidth} onChange={(event) => setLineWidth(Number(event.target.value))} />
+                      </label>
+                    </>
+                  )}
+                </div>
+
+                <div className="canvas-surface" style={{ position: 'relative' }}>
+                  <canvas
+                    ref={canvasRef}
+                    className="design-canvas"
+                    width={860}
+                    height={480}
+                    onPointerDown={beginDrawing}
+                    onPointerMove={draw}
+                    onPointerUp={stopDrawing}
+                    onPointerLeave={stopDrawing}
+                    onDoubleClick={handleCanvasDoubleClick}
+                  />
+
+                  {textEditingId && (() => {
+                    const activeText = canvasObjects.find((object) => object.id === textEditingId)
+                    if (!activeText) return null
+
+                    return (
+                      <input
+                        type="text"
+                        value={textDraft}
+                        autoFocus
+                        onChange={(event) => setTextDraft(event.target.value)}
+                        onBlur={finalizeTextBox}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault()
+                            finalizeTextBox()
+                          }
+                        }}
+                        className="canvas-text-editor"
+                        style={{
+                          left: activeText.x,
+                          top: activeText.y,
+                          color: activeText.color || '#0f172a',
+                          fontSize: `${activeText.fontSize || 26}px`,
+                          fontFamily: activeText.fontFamily || 'sans-serif',
+                        }}
+                        placeholder="Type here"
+                      />
+                    )
+                  })()}
+
+                  {canvasCursor.visible && (
+                    <div
+                      className="canvas-tool-cursor"
+                      style={{ left: canvasCursor.x, top: canvasCursor.y }}
+                    >
+                      {canvasCursor.icon}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {isCommentPanelOpen ? (
+                <aside className="comment-panel" style={{ width: `${commentPanelWidth}px` }}>
+                  <div className="comment-panel-header">
+                    <button type="button" aria-label="Back">←</button>
+                    <div className="comment-panel-pages"><span>‹</span><strong>1 / 1</strong><span>›</span></div>
+                    <button type="button" aria-label="Close" onClick={() => setIsCommentPanelOpen(false)}>×</button>
+                  </div>
+
+                  <div className="comment-resize-handle" onPointerDown={(event) => {
+                    event.preventDefault()
+                    setIsCommentPanelResizing(true)
+                  }} />
+
+                  <div className="comment-thread">
+                    {boardComments.length === 0 ? (
+                      <div className="comment-empty">No comments yet. Leave feedback for the team.</div>
+                    ) : (
+                      boardComments.map((comment) => (
+                        <div key={comment.id} className="comment-card">
+                          <div className="comment-author-row">
+                            <span className="comment-avatar">{(comment.user || 'Y').charAt(0).toUpperCase()}</span>
+                            <div className="comment-meta">
+                              <strong>{comment.user}</strong>
+                              <span>{comment.time || 'Just now'}</span>
+                            </div>
+                          </div>
+                          <p>{comment.text}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  <form className="comment-form" onSubmit={handleAddComment}>
+                    <input
+                      type="text"
+                      value={commentDraft}
+                      onChange={(event) => setCommentDraft(event.target.value)}
+                      placeholder="Reply..."
+                    />
+                    <button type="submit" aria-label="Send comment">↑</button>
+                  </form>
+                </aside>
+              ) : (
+                <button
+                  type="button"
+                  className="comment-panel-toggle"
+                  onClick={() => setIsCommentPanelOpen(true)}
+                  aria-label="Open comments"
+                >
+                  💬
+                </button>
+              )}
             </div>
-
-            <button type="button" className="secondary-btn small" onClick={() => fileInputRef.current?.click()}>
-              Upload media
-            </button>
-            <button type="button" className="secondary-btn small" onClick={handleUndo} disabled={canvasHistory.length === 0}>
-              Undo
-            </button>
-            <button type="button" className="secondary-btn small" onClick={handleRedo} disabled={canvasFuture.length === 0}>
-              Redo
-            </button>
-            <button type="button" className="secondary-btn small" onClick={() => handleExportCanvas('png')}>
-              Save PNG
-            </button>
-            <button type="button" className="secondary-btn small" onClick={() => handleExportCanvas('jpeg')}>
-              Save JPEG
-            </button>
-            <button type="button" className="secondary-btn small" onClick={() => handleExportCanvas('mp3')}>
-              Save MP3
-            </button>
-            <button type="button" className="primary-btn small" onClick={clearCanvas}>
-              Clear canvas
-            </button>
-            <input ref={fileInputRef} type="file" accept="image/*,video/*" hidden onChange={handleMediaUpload} />
           </div>
-        </div>
-
-        <div className="canvas-settings">
-          <label>
-            Brush color
-            <input type="color" value={lineColor} onChange={(event) => setLineColor(event.target.value)} />
-          </label>
-          <label>
-            Brush size
-            <input type="range" min="2" max="18" value={lineWidth} onChange={(event) => setLineWidth(Number(event.target.value))} />
-          </label>
-        </div>
-
-        <canvas
-          ref={canvasRef}
-          className="design-canvas"
-          width={860}
-          height={480}
-          onPointerDown={beginDrawing}
-          onPointerMove={draw}
-          onPointerUp={stopDrawing}
-          onPointerLeave={stopDrawing}
-        />
-      </div>
+        </>
+      )}
     </div>
   )
 
@@ -1131,43 +1854,91 @@ function App() {
   )
 
   return (
-    <main className="app-shell">
+    <main className={user ? `app-shell${sidebarCollapsed ? ' sidebar-collapsed' : ''}` : 'app-shell landing-shell'}>
       {user && (
-        <aside className="sidebar">
-          <div className="brand-block">
+        <aside className={sidebarCollapsed ? 'sidebar collapsed' : 'sidebar'}>
+          <button type="button" className="brand-block" onClick={() => setSidebarCollapsed((current) => !current)} aria-label="Toggle workspace menu">
             <span className="brand-mark">D</span>
-            <div>
-              <p className="eyebrow">Workspace</p>
-              <h1>DesignSpace</h1>
-            </div>
-          </div>
+            {!sidebarCollapsed && (
+              <div>
+                <p className="eyebrow">Workspace</p>
+                <h1>DesignSpace</h1>
+              </div>
+            )}
+          </button>
 
-          <nav className="nav-list" aria-label="Workspace sections">
-            {NAV_ITEMS.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                title={item.title}
-                aria-label={item.title}
-                className={activeTab === item.id ? 'nav-item active' : 'nav-item'}
-                onClick={() => setActiveTab(item.id)}
-              >
-                {item.label}
-              </button>
-            ))}
-          </nav>
+          {!sidebarCollapsed && (
+            <>
+              <nav className="nav-list" aria-label="Workspace sections">
+                {NAV_ITEMS.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    title={item.title}
+                    aria-label={item.title}
+                    className={selectedSidebarItem === item.id ? 'nav-item active' : 'nav-item'}
+                    onClick={() => {
+                      setSelectedSidebarItem(item.id)
+                      setActiveTab(item.id)
+                    }}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </nav>
 
-          <div className="mini-card">
-            <p className="eyebrow">Realtime sync</p>
-            <strong>Live workspace</strong>
-            <span>multi-user editing</span>
-          </div>
+              <div className="sidebar-actions">
+                <button
+                  type="button"
+                  className={selectedSidebarItem === 'account' ? 'sidebar-btn secondary active' : 'sidebar-btn secondary'}
+                  onClick={() => {
+                    setSelectedSidebarItem('account')
+                    setShowAccountPanel((current) => !current)
+                  }}
+                >
+                  Account
+                </button>
+                <button
+                  type="button"
+                  className={selectedSidebarItem === 'logout' ? 'sidebar-btn primary active' : 'sidebar-btn primary'}
+                  onClick={() => {
+                    setSelectedSidebarItem('logout')
+                    setUser(null)
+                  }}
+                >
+                  Log out
+                </button>
+              </div>
+
+              <div className="mini-card">
+                <p className="eyebrow">Realtime sync</p>
+                <strong>Live workspace</strong>
+                <span>multi-user editing</span>
+              </div>
+            </>
+          )}
         </aside>
       )}
 
       <section className="main-panel">
         {!user ? (
           <div className="landing-page">
+            <header className="landing-topbar">
+              <div className="landing-brand">
+                <span className="brand-mark small">D</span>
+                <span>DesignSpace</span>
+              </div>
+
+              <div className="landing-nav-actions">
+                <button type="button" className="secondary-btn small" onClick={() => scrollToAuth('login')}>
+                  Login
+                </button>
+                <button type="button" className="primary-btn small" onClick={() => scrollToAuth('signup')}>
+                  Sign up
+                </button>
+              </div>
+            </header>
+
             <section className="landing-hero">
               <div className="hero-copy">
                 <span className="brand-badge">DesignSpace</span>
@@ -1180,20 +1951,14 @@ function App() {
                   <button
                     type="button"
                     className="primary-btn"
-                    onClick={() => {
-                      setAuthMode('signup')
-                      setShowOtpLogin(false)
-                    }}
+                    onClick={() => scrollToAuth('signup')}
                   >
                     Get started
                   </button>
                   <button
                     type="button"
                     className="secondary-btn"
-                    onClick={() => {
-                      setAuthMode('login')
-                      setShowOtpLogin(false)
-                    }}
+                    onClick={() => scrollToAuth('login')}
                   >
                     Login
                   </button>
@@ -1231,6 +1996,56 @@ function App() {
             </section>
 
             <section className="landing-lower">
+              <div className="template-preview">
+                <div className="template-header">
+                  <p className="eyebrow">Popular templates</p>
+                  <h3>Pick a starting point</h3>
+                </div>
+                <div className="template-grid">
+                  <div className="template-card">
+                    <div className="template-visual visual-one" />
+                    <span className="template-badge">Wireframe</span>
+                    <h4>Landing page</h4>
+                    <p>Layout ideas for product launches and homepage concepts.</p>
+                    <button type="button" className="template-cta" onClick={() => scrollToAuth('signup')}>
+                      Start this template <span aria-hidden="true">→</span>
+                    </button>
+                  </div>
+                  <div className="template-card">
+                    <div className="template-visual visual-two" />
+                    <span className="template-badge alt">Moodboard</span>
+                    <h4>Brand sprint</h4>
+                    <p>Visual direction, blocks, and creative references in one view.</p>
+                    <button type="button" className="template-cta" onClick={() => scrollToAuth('signup')}>
+                      Start this template <span aria-hidden="true">→</span>
+                    </button>
+                  </div>
+                  <div className="template-card">
+                    <div className="template-visual visual-three" />
+                    <span className="template-badge soft">Storyboard</span>
+                    <h4>Campaign flow</h4>
+                    <p>Sequence scenes, content blockers, and launch narratives.</p>
+                    <button type="button" className="template-cta" onClick={() => scrollToAuth('signup')}>
+                      Start this template <span aria-hidden="true">→</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="creator-promo">
+                <div className="creator-panel">
+                  <p className="eyebrow">Create with AI</p>
+                  <h3>Need a fresh logo or pitch deck?</h3>
+                  <p>Generate a new brand identity, presentation, or campaign concept before sharing it with your team.</p>
+                  <button type="button" className="primary-btn small" onClick={() => scrollToAuth('signup')}>
+                    Create new logo
+                  </button>
+                  <button type="button" className="secondary-btn small" onClick={() => scrollToAuth('signup')}>
+                    Create PPT
+                  </button>
+                </div>
+              </div>
+
               <div className="testimonial-strip">
                 <div className="testimonial-card">
                   <p>
@@ -1260,33 +2075,9 @@ function App() {
                   </div>
                 </div>
               </div>
-
-              <div className="template-preview">
-                <div className="template-header">
-                  <p className="eyebrow">Popular templates</p>
-                  <h3>Pick a starting point</h3>
-                </div>
-                <div className="template-grid">
-                  <div className="template-card">
-                    <span className="template-badge">Wireframe</span>
-                    <h4>Landing page</h4>
-                    <p>Layout ideas for product launches and homepage concepts.</p>
-                  </div>
-                  <div className="template-card">
-                    <span className="template-badge alt">Moodboard</span>
-                    <h4>Brand sprint</h4>
-                    <p>Visual direction, blocks, and creative references in one view.</p>
-                  </div>
-                  <div className="template-card">
-                    <span className="template-badge soft">Storyboard</span>
-                    <h4>Campaign flow</h4>
-                    <p>Sequence scenes, content blockers, and launch narratives.</p>
-                  </div>
-                </div>
-              </div>
             </section>
 
-            <div className="auth-card landing-auth-card">
+            <div id="landing-auth" className="auth-card landing-auth-card">
               <div className="auth-header">
                 <div>
                   <p className="eyebrow">Welcome</p>
@@ -1318,6 +2109,7 @@ function App() {
                       value={form.name}
                       onChange={handleChange}
                       placeholder="Your name"
+                      autoComplete="off"
                       required
                     />
                   </label>
@@ -1332,6 +2124,7 @@ function App() {
                       value={form.email}
                       onChange={handleChange}
                       placeholder="you@example.com"
+                      autoComplete="off"
                       required
                     />
                   </label>
@@ -1347,6 +2140,7 @@ function App() {
                         value={form.password}
                         onChange={handleChange}
                         placeholder="••••••••"
+                        autoComplete="off"
                         required
                       />
                       <button
@@ -1509,14 +2303,6 @@ function App() {
                 <p className="eyebrow">Welcome back</p>
                 <h2>{user.name}</h2>
               </div>
-              <div className="header-actions">
-                <button type="button" className="secondary-btn small" onClick={() => setShowAccountPanel((current) => !current)}>
-                  Account
-                </button>
-                <button type="button" className="primary-btn small" onClick={() => setUser(null)}>
-                  Log out
-                </button>
-              </div>
             </header>
 
             {showAccountPanel && (
@@ -1588,7 +2374,6 @@ function App() {
             </section>
 
             {activeTab === 'projects' && renderProjects()}
-            {activeTab === 'teams' && renderTeams()}
           </div>
         )}
       </section>
