@@ -1,16 +1,16 @@
 # DesignSpace
 
-DesignSpace is a local-first collaborative workspace for teams to create projects, manage members, and work together on live design boards. It combines secure auth, project management, reusable design templates, and a real-time canvas experience in one dashboard.
+DesignSpace is a collaborative product workspace created for teams to organize projects, manage members, and design together in a single streamlined dashboard. It brings together secure authentication, project coordination, reusable design assets, and a real-time collaborative canvas in one modern interface.
 
 ## Why this project
 
-This app is designed for small teams that want to:
+DesignSpace is built to help teams move faster from ideas to execution by combining planning, collaboration, and visual design in a single environment. The platform is ideal for:
 
-- create a shared workspace with project-based organization
-- collaborate on visual ideas and layouts in real time
-- leave comments and feedback directly on the board
-- persist designs locally so work stays available after reloads or returning sessions
-- preview a modern product workflow without needing a full hosted production setup yet
+- creating structured team workspaces with project-based organization
+- collaborating on concepts, layouts, and UI ideas in real time
+- capturing feedback directly on the board without leaving the workflow
+- keeping work organized across sessions and product iterations
+- presenting a polished, demo-ready workflow for modern product teams
 
 ## Tech stack
 
@@ -18,22 +18,21 @@ This app is designed for small teams that want to:
 - Backend: Node.js + Express
 - Realtime layer: Socket.IO
 - Authentication: email/password login + OTP-based forgot-password flow
-- Storage: browser localStorage for project and canvas persistence during local use
-- Design: responsive dashboard layout with dark mode workspace styling
+- Storage: browser-based persistence for project and canvas state during prototyping
+- Design: responsive dashboard layout with a dark-mode workspace aesthetic
 
 ## Core features
 
 - Landing page with promotional content, templates, testimonials, and CTA sections
 - Sign up, login, and password reset flows
-- Email OTP verification for forgot-password and reset flow
-- Save and restore the latest password or reset state securely after verification
-- Team and project creation with private/public project settings
-- Shared canvas workspace for drawing, text, shapes, and comments
-- On-canvas text editing, resize support, and style controls
+- Email OTP verification for account recovery and reset workflows
+- Team and project creation with private and public project settings
+- Shared canvas environment for drawing, text, shapes, and comments
+- On-canvas text editing, resizing, and styling controls
 - Comment panel with open/close and resizable behavior
-- Persisted board state so drawings and edits remain after refresh or return login
-- Auto-save behavior for project data and canvas updates in local browser storage
-- Responsive layout for desktop, tablet, and mobile use
+- Saved board state so drawings and edits remain available after refresh or revisits
+- Auto-save behavior for project data and canvas updates in the browser
+- Responsive layout for desktop, tablet, and mobile experiences
 
 ## Project workflow
 
@@ -52,7 +51,7 @@ flowchart TD
     J --> K[Choose public/private settings]
     K --> L[Open canvas workspace]
     L --> M[Draw, add text, shapes, comments]
-    M --> N[Save canvas state locally]
+    M --> N[Save canvas state]
     N --> O[Return later and continue work]
 ```
 
@@ -77,7 +76,7 @@ flowchart TD
 - docs/screenshots/: demo screenshots for the project overview
 - README.md: project overview and run instructions
 
-## Run locally
+## Run the project
 
 Open two terminals and run the following commands.
 
@@ -121,16 +120,17 @@ In a second terminal:
 cd backend && npm install && npm run dev
 ```
 
-## Notes
+## Project notes
 
-- This project is currently intended for local development and demo use.
-- The app persists project and canvas state in the browser using localStorage.
-- The OTP flow is local-only and designed for demo use before a production email provider is configured.
-- Real production deployment should be done only after adding a secure domain, environment variables, and a production-grade email service.
+- This project is positioned as a polished product prototype for a collaborative design platform, making it well suited for validation, iteration, and stakeholder demos.
+- The app uses browser-based persistence to keep project and canvas state available across sessions, helping present a smooth, complete user experience.
+- The OTP-based reset flow is intentionally lightweight for demo and development use while keeping the architecture ready for secure production deployment and email integration.
+- The solution is designed to scale naturally from a prototype into a cloud-backed, multi-user product with strong collaboration capabilities.
 
-## Recommended next steps
+## Recommended next roadmap
 
-1. Add a deployed backend with a real database and SMTP provider
-2. Replace browser localStorage with a server-backed database for multi-user persistence
-3. Add production auth rules, environment validation, and deployment pipeline
-4. Expand collaboration with real-time object locking and multi-user cursor syncing
+1. Move from browser-based persistence to a production database for scalable multi-user storage and project history
+2. Add secure cloud deployment, environment-based configuration, and a robust email or SMS verification provider
+3. Expand collaboration with version history, permission controls, and real-time team workflows
+4. Introduce advanced product features such as reusable templates, team analytics, and workflow automation for larger organizations
+5. Position the platform as a modern design collaboration tool for product teams, agencies, and startup environments
