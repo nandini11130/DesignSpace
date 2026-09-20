@@ -126,6 +126,7 @@ cd backend && npm install && npm run dev
 - The app uses browser-based persistence to keep project and canvas state available across sessions, helping present a smooth, complete user experience.
 - The OTP-based reset flow is intentionally lightweight for demo and development use while keeping the architecture ready for secure production deployment and email integration.
 - The solution is designed to scale naturally from a prototype into a cloud-backed, multi-user product with strong collaboration capabilities.
+- Git identity verification update: this commit is being created using the global email configuration for project publishing and collaboration.
 
 ## Recommended next roadmap
 
